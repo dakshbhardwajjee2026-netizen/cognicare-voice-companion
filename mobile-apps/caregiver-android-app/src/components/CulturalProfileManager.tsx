@@ -1,14 +1,22 @@
 import React, { useState } from 'react';
-import { User, Globe, Heart, Save } from 'lucide-react';
+import { User, Save } from 'lucide-react';
 import { CulturalProfile } from '../types';
 
 interface CulturalProfileManagerProps {
-  profile: CulturalProfile;
+  profile?: CulturalProfile;
   onSaveProfile: (profile: CulturalProfile) => void;
 }
 
 export const CulturalProfileManager: React.FC<CulturalProfileManagerProps> = ({ profile, onSaveProfile }) => {
-  const [formData, setFormData] = useState<CulturalProfile>(profile);
+  const [formData, setFormData] = useState<CulturalProfile>({
+    language: profile?.language || 'en',
+    honorific: profile?.honorific || 'Kaka',
+    patientName: profile?.patientName || 'David Kaka',
+    age: profile?.age || 74,
+    profession: profile?.profession || 'Retired Mathematics Teacher',
+    hobbies: profile?.hobbies || ['Gardening', 'Classical Music'],
+    keyMemories: profile?.keyMemories || ['Married to Sunita in 1978']
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

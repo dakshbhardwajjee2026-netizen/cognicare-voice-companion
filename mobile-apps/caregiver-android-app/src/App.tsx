@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Activity, Brain, User, Image as ImageIcon, MapPin, Send, PhoneCall } from 'lucide-react';
 import { CaregiverHeader } from './components/CaregiverHeader';
 import { CognitiveTelemetryDashboard } from './components/CognitiveTelemetryDashboard';
 import { CulturalProfileManager } from './components/CulturalProfileManager';
@@ -55,36 +56,37 @@ export const App: React.FC = () => {
   const [messages, setMessages] = useState<VoiceMessage[]>([]);
 
   useEffect(() => {
-    // REST API Initial Data Fetch
+    // REST API Initial Data Fetch with error fallback
     fetch('http://localhost:3001/api/telemetry')
       .then(res => res.json())
-      .then(data => setTelemetry(data))
+      .then(data => { if (data) setTelemetry(prev => ({ ...prev, ...data })); })
       .catch(err => console.log('Telemetry fetch fallback:', err));
 
     fetch('http://localhost:3001/api/memories')
       .then(res => res.json())
-      .then(data => setMemories(data))
+      .then(data => { if (Array.isArray(data)) setMemories(data); })
       .catch(err => console.log('Memories fetch fallback:', err));
 
     fetch('http://localhost:3001/api/requests')
       .then(res => res.json())
-      .then(data => setRequests(data))
+      .then(data => { if (Array.isArray(data)) setRequests(data); })
       .catch(err => console.log('Requests fetch fallback:', err));
 
     fetch('http://localhost:3001/api/messages')
       .then(res => res.json())
-      .then(data => setMessages(data))
+      .then(data => { if (Array.isArray(data)) setMessages(data); })
       .catch(err => console.log('Messages fetch fallback:', err));
 
     // WebSocket Real-time Subscriptions
     const unsubscribe = caregiverWsClient.subscribe((event, data) => {
+      if (!data) return;
       if (event === 'INIT_STATE') {
-        if (data.telemetry) setTelemetry(data.telemetry);
-        if (data.memories) setMemories(data.memories);
-        if (data.requests) setRequests(data.requests);
-        if (data.messages) setMessages(data.messages);
+        if (data.telemetry) setTelemetry(prev => ({ ...prev, ...data.telemetry }));
+        if (Array.isArray(data.memories)) setMemories(data.memories);
+        if (Array.isArray(data.requests)) setRequests(data.requests);
+        if (Array.isArray(data.messages)) setMessages(data.messages);
       } else if (event === 'TELEMETRY_UPDATE') {
-        setTelemetry(data);
+        setTelemetry(prev => ({ ...prev, ...data }));
       } else if (event === 'CALL_SIGNAL') {
         if (data.type === 'offer') setTelemetry(prev => ({ ...prev, activeCallState: 'calling' }));
         else if (data.type === 'answer') setTelemetry(prev => ({ ...prev, activeCallState: 'connected' }));
@@ -94,7 +96,7 @@ export const App: React.FC = () => {
       } else if (event === 'CAREGIVER_REQUEST') {
         setRequests(prev => [data, ...prev]);
       } else if (event === 'MEMORIES_UPDATE') {
-        setMemories(data);
+        if (Array.isArray(data)) setMemories(data);
       }
     });
 
@@ -144,15 +146,11 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 text-slate-900 flex flex-col justify-between max-w-md mx-auto relative shadow-2xl border-x border-slate-200/80 font-sans">
-      {/* Header Bar */}
-      <CaregiverHeader
-        telemetry={telemetry}
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-      />
+      {/* Top Status Header */}
+      <CaregiverHeader telemetry={telemetry} />
 
-      {/* Main Tab Content */}
-      <main className="p-4 space-y-4 flex-1 pb-8">
+      {/* Main Tab View Content Area */}
+      <main className="p-4 space-y-4 flex-1 pb-24">
         {activeTab === 'telemetry' && (
           <CognitiveTelemetryDashboard telemetry={telemetry} />
         )}
@@ -162,11 +160,11 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === 'profile' && (
-          <CulturalProfileManager profile={telemetry.profile} onSaveProfile={handleSaveProfile} />
+          <CulturalProfileManager profile={telemetry?.profile} onSaveProfile={handleSaveProfile} />
         )}
 
         {activeTab === 'memories' && (
-          <MemoryBankManager memories={memories} onAddMemory={handleAddMemory} />
+          <MemoryBankManager memories={memories || []} onAddMemory={handleAddMemory} />
         )}
 
         {activeTab === 'geofence' && (
@@ -174,18 +172,91 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === 'tasks' && (
-          <RemoteTaskDispatcher requests={requests} onCreateTask={handleCreateTask} />
+          <RemoteTaskDispatcher requests={requests || []} onCreateTask={handleCreateTask} />
         )}
 
         {activeTab === 'calling' && (
           <CaregiverCallConsole
-            callState={telemetry.activeCallState}
-            patientName={telemetry.profile?.patientName || 'David Kaka'}
-            messages={messages}
+            callState={telemetry?.activeCallState || 'idle'}
+            patientName={telemetry?.profile?.patientName || 'David Kaka'}
+            messages={messages || []}
             onSendMessage={handleSendMessage}
           />
         )}
       </main>
+
+      {/* Floating Apple iOS Bottom Menu Dock Bar */}
+      <nav className="fixed bottom-4 left-4 right-4 z-30 max-w-sm mx-auto bg-white/90 backdrop-blur-2xl border border-slate-200/90 rounded-full p-2 shadow-lg shadow-slate-200/60 flex items-center justify-around">
+        <button
+          onClick={() => setActiveTab('telemetry')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'telemetry' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Telemetry"
+        >
+          <Activity className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('games')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'games' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="5 Games Analytics"
+        >
+          <Brain className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('profile')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'profile' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Cultural Profile"
+        >
+          <User className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('memories')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'memories' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Memory Bank"
+        >
+          <ImageIcon className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('geofence')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'geofence' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Geofence Radar"
+        >
+          <MapPin className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('tasks')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'tasks' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Dispatch Tasks"
+        >
+          <Send className="w-5 h-5" />
+        </button>
+
+        <button
+          onClick={() => setActiveTab('calling')}
+          className={`p-3 rounded-full transition-all flex flex-col items-center ${
+            activeTab === 'calling' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-700'
+          }`}
+          title="Call & Chat"
+        >
+          <PhoneCall className="w-5 h-5" />
+        </button>
+      </nav>
     </div>
   );
 };
