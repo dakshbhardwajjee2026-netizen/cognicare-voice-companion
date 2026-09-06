@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Volume2, Sparkles } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Sparkles, Mic, Volume2, ShieldCheck } from 'lucide-react';
+import { useSTT } from '../hooks/useSTT';
 
 interface KaiVoiceCompanionProps {
   patientName: string;
@@ -12,53 +13,12 @@ export const KaiVoiceCompanion: React.FC<KaiVoiceCompanionProps> = ({
   honorific,
   language,
 }) => {
-  const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [userSpeech, setUserSpeech] = useState('');
-  const [kaiResponse, setKaiResponse] = useState(`Namaste ${honorific}! I am Kai, your companion. Tap the orb or speak anytime.`);
-  
-  const recognitionRef = useRef<any>(null);
-
-  useEffect(() => {
-    // Initialize Web Speech API if supported
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-
-      recognition.onstart = () => setIsListening(true);
-      recognition.onend = () => setIsListening(false);
-      recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        setUserSpeech(transcript);
-        handleSendToKai(transcript);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, [honorific, language]);
-
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert('Speech recognition is not supported in this browser environment. Using demo prompts.');
-      handleSendToKai("How are you today Kai?");
-      return;
-    }
-
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      try {
-        recognitionRef.current.start();
-      } catch (err) {
-        console.error('Error starting STT:', err);
-      }
-    }
-  };
+  const [kaiResponse, setKaiResponse] = useState(`Namaste ${honorific}! I am Kai, your gentle companion. Speak naturally anytime.`);
+  const [lastUserText, setLastUserText] = useState('');
 
   const handleSendToKai = async (query: string) => {
+    setLastUserText(query);
     try {
       setIsSpeaking(true);
       const res = await fetch('http://localhost:3001/api/ai/chat', {
@@ -67,22 +27,32 @@ export const KaiVoiceCompanion: React.FC<KaiVoiceCompanionProps> = ({
         body: JSON.stringify({ prompt: query, language, honorific })
       });
       const data = await res.json();
-      const text = data.response || `Namaste ${honorific}! I am right here with you.`;
+      const text = data.response || `(tone: warm) Namaste ${honorific}! I am right here with you.`;
       setKaiResponse(text);
       speakText(text);
     } catch (err) {
-      console.error('Error calling Kai backend:', err);
-      const text = `Namaste ${honorific}! I am right here with you. Everything is safe.`;
+      console.error('Error calling Kai AI backend:', err);
+      const text = `(tone: gentle) Namaste ${honorific}! I am right here by your side. Everything is calm and safe.`;
       setKaiResponse(text);
       speakText(text);
     }
   };
 
-  const speakText = (text: string) => {
+  const { isListening, interimTranscript } = useSTT({
+    sttCode: language === 'hi' ? 'hi-IN' : 'en-US',
+    isKaiSpeaking: isSpeaking,
+    onFinalTranscript: (final) => {
+      handleSendToKai(final);
+    }
+  });
+
+  const speakText = (rawText: string) => {
+    // Strip prosody markers like (tone: warm) for clean speech synthesis
+    const cleanText = rawText.replace(/\([^)]*\)/g, '').trim();
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.85; // Slow, clear rate for dementia patients
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 0.85; // Dementia friendly slow, comforting rate
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
       utterance.onerror = () => setIsSpeaking(false);
@@ -93,50 +63,49 @@ export const KaiVoiceCompanion: React.FC<KaiVoiceCompanionProps> = ({
   };
 
   return (
-    <div className="bg-slate-800/80 border border-slate-700 rounded-3xl p-6 shadow-2xl text-center flex flex-col items-center">
-      {/* Kai Glowing Orb */}
-      <div className="relative my-4 cursor-pointer" onClick={toggleListening}>
-        <div className={`w-36 h-36 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl border-4 ${
+    <div className="bg-white/80 backdrop-blur-xl border border-slate-200/90 rounded-3xl p-6 shadow-sm shadow-slate-200/50 text-center flex flex-col items-center">
+      {/* Siri-style Apple Glowing Orb */}
+      <div className="relative my-3 cursor-pointer" onClick={() => handleSendToKai("How are you today Kai?")}>
+        <div className={`w-32 h-32 rounded-full flex items-center justify-center transition-all duration-500 shadow-2xl border-4 border-white ${
           isSpeaking 
-            ? 'bg-gradient-to-tr from-amber-500 via-orange-500 to-yellow-400 border-amber-300 scale-105 shadow-amber-500/50 animate-pulse' 
+            ? 'bg-gradient-to-tr from-amber-400 via-orange-500 to-yellow-400 shadow-amber-500/40 scale-105 animate-pulse' 
             : isListening 
-            ? 'bg-gradient-to-tr from-cyan-500 via-teal-500 to-emerald-400 border-cyan-300 scale-105 shadow-cyan-500/50 animate-pulse-ring' 
-            : 'bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 border-purple-400 shadow-purple-600/40 hover:scale-105'
+            ? 'bg-gradient-to-tr from-sky-400 via-blue-500 to-indigo-600 shadow-blue-500/40 scale-105 animate-pulse' 
+            : 'bg-gradient-to-tr from-blue-600 to-indigo-600 shadow-blue-600/30'
         }`}>
           {isSpeaking ? (
-            <Volume2 className="w-16 h-16 text-white animate-bounce" />
-          ) : isListening ? (
-            <Mic className="w-16 h-16 text-white animate-pulse" />
+            <Volume2 className="w-14 h-14 text-white animate-bounce" />
           ) : (
-            <Sparkles className="w-16 h-16 text-white/90" />
+            <Sparkles className="w-14 h-14 text-white/90 animate-pulse" />
           )}
         </div>
       </div>
 
-      {/* Orb Status Label */}
+      {/* Hands-Free Status Badge */}
       <div className="mb-4">
-        <span className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider ${
-          isSpeaking 
-            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' 
-            : isListening 
-            ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' 
-            : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+        <span className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border ${
+          isSpeaking
+            ? 'bg-amber-50 text-amber-700 border-amber-200'
+            : isListening
+            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+            : 'bg-blue-50 text-blue-700 border-blue-200'
         }`}>
-          {isSpeaking ? 'Kai is Speaking...' : isListening ? 'Kai is Listening...' : 'Tap Orb to Speak'}
+          <span className="w-2 h-2 rounded-full bg-current animate-ping"></span>
+          {isSpeaking ? 'Kai is Speaking...' : isListening ? 'Continuous Hands-Free Listening' : 'Tap Orb to Speak'}
         </span>
       </div>
 
-      {/* Kai Response Box */}
-      <div className="w-full bg-slate-900/90 border border-slate-700/80 rounded-2xl p-5 shadow-inner min-h-[100px] flex items-center justify-center">
-        <p className="text-lg sm:text-xl font-medium text-slate-100 leading-relaxed text-center">
-          "{kaiResponse}"
+      {/* Response Card */}
+      <div className="w-full bg-slate-50/90 border border-slate-200/80 rounded-2xl p-5 shadow-inner min-h-[90px] flex items-center justify-center">
+        <p className="text-base sm:text-lg font-medium text-slate-800 leading-relaxed text-center">
+          "{kaiResponse.replace(/\([^)]*\)/g, '').trim()}"
         </p>
       </div>
 
-      {/* Patient Speech Transcript */}
-      {userSpeech && (
-        <p className="mt-3 text-xs text-slate-400 font-medium italic">
-          You said: "{userSpeech}"
+      {/* Transcripts */}
+      {(interimTranscript || lastUserText) && (
+        <p className="mt-2.5 text-xs text-slate-500 font-medium italic">
+          {interimTranscript ? `Listening: "${interimTranscript}"` : `You said: "${lastUserText}"`}
         </p>
       )}
     </div>

@@ -9,14 +9,40 @@ export interface CallSignal {
   timestamp: string;
 }
 
-export interface VoiceMessage {
+export interface CulturalProfile {
+  language: string; // 'en', 'hi', 'as', 'mn', 'bn', 'gu', 'mr', 'ta', 'te'
+  honorific: string; // 'Kaka', 'Uncle', 'Aunty', 'Grandpa'
+  patientName: string;
+  age: number;
+  profession: string;
+  hobbies: string[];
+  keyMemories: string[];
+}
+
+export interface MemoryItem {
   id: string;
-  sender: 'patient' | 'caregiver';
-  recipient: 'patient' | 'caregiver';
-  text: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  date: string;
+  category: 'Family' | 'Travel' | 'Career' | 'Hobbies';
+}
+
+export interface VoiceNoteItem {
+  id: string;
+  senderName: string;
+  message: string;
   audioUrl?: string;
   timestamp: string;
-  read: boolean;
+  played: boolean;
+}
+
+export interface ScheduleEventItem {
+  id: string;
+  title: string;
+  time: string;
+  category: 'medication' | 'hydration' | 'activity' | 'meal';
+  completed: boolean;
 }
 
 export interface CaregiverRequest {
@@ -29,8 +55,18 @@ export interface CaregiverRequest {
   sentAt: string;
 }
 
+export interface VoiceMessage {
+  id: string;
+  sender: 'patient' | 'caregiver';
+  recipient: 'patient' | 'caregiver';
+  text: string;
+  audioUrl?: string;
+  timestamp: string;
+  read: boolean;
+}
+
 export interface GameScoreEntry {
-  gameId: string;
+  gameId: 'mem_match' | 'what_changed' | 'mem_tray' | 'routine_recall' | 'obj_rec';
   gameTitle: string;
   score: number;
   maxScore: number;
@@ -40,10 +76,10 @@ export interface GameScoreEntry {
 
 export interface PatientTelemetry {
   patientId: string;
-  patientName: string;
+  profile: CulturalProfile;
   cognitiveIndex: number; // 0-100 score
   riskLevel: 'Low' | 'Moderate' | 'Elevated';
-  disorientationIndex: number; // 0-100 risk score
+  disorientationIndex: number;
   lastActiveTime: string;
   currentLocation: {
     lat: number;
@@ -60,14 +96,4 @@ export interface PatientTelemetry {
   activeCallState: CallState;
   batteryLevel: number;
   isSleepMode: boolean;
-}
-
-export interface PatientProfile {
-  name: string;
-  honorific: string;
-  language: string;
-  age: number;
-  conditionStage: string;
-  caregiverName: string;
-  caregiverPhone: string;
 }

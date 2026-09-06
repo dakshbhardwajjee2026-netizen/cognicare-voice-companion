@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PhoneCall, PhoneOff, Mic, MicOff, Send, MessageSquare, Volume2, UserCheck } from 'lucide-react';
+import { PhoneCall, PhoneOff, Mic, MicOff, Send, MessageSquare, UserCheck } from 'lucide-react';
 import { CallState, VoiceMessage } from '../types';
 import { caregiverWsClient } from '../services/websocket';
 
@@ -53,13 +53,13 @@ export const CaregiverCallConsole: React.FC<CaregiverCallConsoleProps> = ({
   return (
     <div className="space-y-4">
       {/* Call Console Card */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-2xl text-center space-y-4">
+      <div className="bg-white/80 backdrop-blur-xl border border-slate-200/90 rounded-3xl p-5 shadow-sm text-center space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-white font-bold">
-            <UserCheck className="w-5 h-5 text-emerald-400" />
+          <div className="flex items-center gap-2 text-slate-900 font-bold">
+            <UserCheck className="w-5 h-5 text-blue-600" />
             <span>Direct Patient Call Console</span>
           </div>
-          <span className="text-xs font-mono text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+          <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-200">
             {callState}
           </span>
         </div>
@@ -67,20 +67,20 @@ export const CaregiverCallConsole: React.FC<CaregiverCallConsoleProps> = ({
         {callState === 'idle' ? (
           <button
             onClick={handleStartCall}
-            className="w-full bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-bold py-4 px-6 rounded-2xl flex items-center justify-center gap-3 shadow-xl shadow-emerald-950/60 border border-emerald-400/40 text-lg transition-all"
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 px-5 rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-blue-500/20 text-base transition-all"
           >
-            <PhoneCall className="w-6 h-6 animate-pulse" />
+            <PhoneCall className="w-5 h-5 animate-pulse" />
             <span>Initiate Voice Call with {patientName}</span>
           </button>
         ) : (
-          <div className="bg-slate-950/90 border border-emerald-500/40 rounded-2xl p-5 space-y-4">
-            <p className="text-xl font-bold text-white">
+          <div className="bg-slate-50 border border-blue-200 rounded-2xl p-5 space-y-4">
+            <p className="text-lg font-bold text-slate-900">
               {callState === 'calling' ? `Calling ${patientName}...` : callState === 'ringing' ? `Ringing ${patientName}...` : `In Call (${formatDuration(callDuration)})`}
             </p>
             <div className="flex items-center justify-center gap-4">
               <button
                 onClick={handleEndCall}
-                className="w-16 h-16 rounded-full bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center shadow-lg shadow-rose-900/60 transition-all"
+                className="w-16 h-16 rounded-full bg-rose-500 hover:bg-rose-600 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all"
               >
                 <PhoneOff className="w-8 h-8" />
               </button>
@@ -89,46 +89,44 @@ export const CaregiverCallConsole: React.FC<CaregiverCallConsoleProps> = ({
         )}
       </div>
 
-      {/* Voice & Text Messaging Console */}
-      <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 shadow-xl space-y-4">
-        <h3 className="text-base font-bold text-white flex items-center gap-2">
-          <MessageSquare className="w-5 h-5 text-sky-400" />
-          <span>Patient Messaging Feed</span>
+      {/* Messaging Console */}
+      <div className="bg-white/80 backdrop-blur-xl border border-slate-200/90 rounded-3xl p-5 shadow-sm space-y-3">
+        <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+          <MessageSquare className="w-5 h-5 text-blue-600" />
+          <span>Patient Messages Stream</span>
         </h3>
 
-        {/* Message Stream */}
-        <div className="space-y-3 max-h-60 overflow-y-auto p-2">
+        <div className="space-y-2.5 max-h-56 overflow-y-auto p-1">
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`p-3 rounded-2xl max-w-[85%] text-sm ${
+              className={`p-3 rounded-2xl max-w-[85%] text-xs ${
                 msg.sender === 'caregiver'
-                  ? 'bg-indigo-600 text-white ml-auto rounded-br-none'
-                  : 'bg-slate-800 text-slate-100 mr-auto rounded-bl-none border border-slate-700'
+                  ? 'bg-blue-600 text-white ml-auto rounded-br-none shadow-sm'
+                  : 'bg-slate-100 text-slate-900 mr-auto rounded-bl-none border border-slate-200'
               }`}
             >
-              <p className="font-medium">{msg.text}</p>
-              <span className="text-[10px] text-slate-300 font-mono block text-right mt-1 opacity-80">
+              <p className="font-semibold">{msg.text}</p>
+              <span className="text-[10px] text-slate-300 font-mono block text-right mt-1 opacity-90">
                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
           ))}
         </div>
 
-        {/* Dispatch Form */}
-        <form onSubmit={handleSend} className="flex gap-2">
+        <form onSubmit={handleSend} className="flex gap-2 pt-2">
           <input
             type="text"
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
             placeholder="Type message for Kai to read aloud..."
-            className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+            className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-blue-500"
           />
           <button
             type="submit"
-            className="bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold p-3 rounded-xl flex items-center justify-center transition-all"
+            className="bg-blue-600 hover:bg-blue-500 text-white font-bold p-2.5 rounded-xl shadow-md transition-all"
           >
-            <Send className="w-5 h-5" />
+            <Send className="w-4 h-4" />
           </button>
         </form>
       </div>

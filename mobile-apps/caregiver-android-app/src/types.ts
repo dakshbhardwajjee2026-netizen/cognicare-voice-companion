@@ -1,7 +1,34 @@
 export type CallState = 'idle' | 'calling' | 'ringing' | 'connected' | 'ended';
 
+export interface CulturalProfile {
+  language: string;
+  honorific: string;
+  patientName: string;
+  age: number;
+  profession: string;
+  hobbies: string[];
+  keyMemories: string[];
+}
+
+export interface MemoryItem {
+  id: string;
+  title: string;
+  description: string;
+  imageUrl: string;
+  date: string;
+  category: 'Family' | 'Travel' | 'Career' | 'Hobbies';
+}
+
+export interface ScheduleEventItem {
+  id: string;
+  title: string;
+  time: string;
+  category: 'medication' | 'hydration' | 'activity' | 'meal';
+  completed: boolean;
+}
+
 export interface GameScoreEntry {
-  gameId: string;
+  gameId: 'mem_match' | 'what_changed' | 'mem_tray' | 'routine_recall' | 'obj_rec';
   gameTitle: string;
   score: number;
   maxScore: number;
@@ -11,7 +38,7 @@ export interface GameScoreEntry {
 
 export interface PatientTelemetry {
   patientId: string;
-  patientName: string;
+  profile: CulturalProfile;
   cognitiveIndex: number;
   riskLevel: 'Low' | 'Moderate' | 'Elevated';
   disorientationIndex: number;
