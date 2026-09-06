@@ -1,0 +1,11 @@
+{
+  "name": "CogniCare Voice Companion",
+  "description": "A serene AI voice companion designed to provide a calming, audible presence for individuals needing cognitive support. It uses structured voice and prosody directives to deliver clear, warm, and simple spoken messages.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
