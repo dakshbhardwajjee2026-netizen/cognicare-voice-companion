@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type, FunctionDeclaration } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
+import { initDatabase, getAllPatients, getPatientById, savePatient, deletePatient } from './database';
 
 dotenv.config({ path: '.env.local' });
 dotenv.config();
@@ -117,7 +118,58 @@ async function trySarvamAIResponse(prompt: string, patientName: string, userLang
   return null;
 }
 
-// Fallback intelligent responder when AI APIs hit rate limit or are offline
+// Linguistic Script & Language Detection Engine
+function detectSpokenLanguage(prompt: string, fallbackLang = 'en'): { langCode: string; langName: string; isIndic: boolean } {
+  const text = (prompt || '').trim();
+  const lower = text.toLowerCase();
+
+  // 1. Unicode Script Matching
+  if (/[\u0900-\u097F]/.test(text)) {
+    const isMarathi = /\b(आहे|नाही|कसा|कशी|कुठे|काय|आम्ही|भीती)\b/.test(text);
+    return isMarathi ? { langCode: 'mr', langName: 'Marathi (मराठी)', isIndic: true } : { langCode: 'hi', langName: 'Hindi (हिन्दी)', isIndic: true };
+  }
+  if (/[\u0980-\u09FF]/.test(text)) {
+    const isAssamese = /[\u09F0\u09F1]/.test(text) || text.includes('আপুনি');
+    return isAssamese ? { langCode: 'as', langName: 'Assamese (অসমীয়া)', isIndic: true } : { langCode: 'bn', langName: 'Bengali (বাংলা)', isIndic: true };
+  }
+  if (/[\u0A80-\u0AFF]/.test(text)) return { langCode: 'gu', langName: 'Gujarati (ગુજરાતી)', isIndic: true };
+  if (/[\u0A00-\u0A7F]/.test(text)) return { langCode: 'pa', langName: 'Punjabi (ਪੰਜਾਬੀ)', isIndic: true };
+  if (/[\u0B80-\u0BFF]/.test(text)) return { langCode: 'ta', langName: 'Tamil (தமிழ்)', isIndic: true };
+  if (/[\u0C00-\u0C7F]/.test(text)) return { langCode: 'te', langName: 'Telugu (తెలుగు)', isIndic: true };
+  if (/[\u0C80-\u0CFF]/.test(text)) return { langCode: 'kn', langName: 'Kannada (ಕನ್ನಡ)', isIndic: true };
+  if (/[\u0D00-\u0D7F]/.test(text)) return { langCode: 'ml', langName: 'Malayalam (മലയാളം)', isIndic: true };
+  if (/[\u0B00-\u0B7F]/.test(text)) return { langCode: 'or', langName: 'Odia (ଓଡ଼ିଆ)', isIndic: true };
+  if (/[\u0600-\u06FF]/.test(text)) return { langCode: 'ur', langName: 'Urdu (اردو)', isIndic: true };
+
+  // 2. Strict Word-Boundary Token Matching for Romanized / Code-Mixed Speech
+  const englishTokens = /\b(who|where|what|when|why|how|please|tell|play|voice|note|message|memory|photo|picture|schedule|daughter|family|friend|time|today|doctor|call|help|feel|feeling|scared|confused|lost|good|safe|right|now|hello|hi|hey|name|am|is|are|you|me|my|mine|i)\b/i;
+  const hindiTokens = /\b(kaun|kahan|kidhar|kya|kyun|kaise|mera|meri|mere|mujhe|mujhko|dawa|dawai|beti|beta|namaste|dar|yaad|tasveer|batao|bataiye|chalo|madad|theek|bolo|sunao|chahiye|aayegi|aayega|dekho|kripya|hoon|hai|hain|karta|karte|karti|raho|rahe|kuch|nahi|nahin|ghar|pani|bhookh)\b/i;
+  const gujaratiTokens = /\b(kem|cho|majama|bhaai|bhai|ben|tamaru|aaje|mane|thodo|dar|chhokri|chhokro|aavjo|nathi|su|sarasa|kutumb)\b/i;
+  const marathiTokens = /\b(kuthe|ahe|kasa|kashi|kay|aamhi|namaskar|kashe|bhiti|ghari|dawa)\b/i;
+  const bengaliTokens = /\b(kothay|aachen|bhalo|aami|tumi|ki|naam|kemon|bari)\b/i;
+
+  const hasHindi = hindiTokens.test(lower);
+  const hasGujarati = gujaratiTokens.test(lower);
+  const hasMarathi = marathiTokens.test(lower);
+  const hasBengali = bengaliTokens.test(lower);
+  const hasEnglish = englishTokens.test(lower);
+
+  if (hasHindi && !hasEnglish) return { langCode: 'hi', langName: 'Hindi (हिन्दी)', isIndic: true };
+  if (hasGujarati) return { langCode: 'gu', langName: 'Gujarati (ગુજરાતી)', isIndic: true };
+  if (hasMarathi) return { langCode: 'mr', langName: 'Marathi (मराठी)', isIndic: true };
+  if (hasBengali) return { langCode: 'bn', langName: 'Bengali (বাংলা)', isIndic: true };
+  if (hasHindi && hasEnglish) return { langCode: 'hi', langName: 'Hindi (Hinglish)', isIndic: true };
+  if (hasEnglish) return { langCode: 'en', langName: 'English', isIndic: false };
+
+  // Fallback to active language selection
+  const fb = (fallbackLang || 'en').toLowerCase();
+  return {
+    langCode: fb,
+    langName: LANGUAGE_NAME_MAP[fb] || fb.toUpperCase(),
+    isIndic: fb !== 'en' && fb !== 'es' && fb !== 'fr' && fb !== 'de' && fb !== 'zh' && fb !== 'ja',
+  };
+}
+
 // Fallback intelligent responder when AI APIs hit rate limit or are offline
 function generateLocalFallbackResponse(
   prompt: string,
@@ -125,121 +177,215 @@ function generateLocalFallbackResponse(
   language = 'en',
   locationInfo?: any
 ): { text: string; functionCalls?: any[] } {
-  const lower = prompt.toLowerCase();
+  const lower = (prompt || '').toLowerCase();
   const name = patientData?.profile?.name || 'friend';
   const cultural = patientData?.culturalProfile || { honorificTitle: 'Kaka', ethnicBackground: 'Indian' };
   const honorific = cultural.honorificTitle ? `${name} ${cultural.honorificTitle}` : name;
 
   const memories = patientData?.memories || [];
   const schedule = patientData?.schedule || [];
-  const unplayedNote = (patientData?.voiceNotes || []).find((n: any) => !n.played);
   const familyMembers = patientData?.familyMembers || [];
+  const familyNames = familyMembers.map((m: any) => m.name).join(', ') || 'Maria, Sarah, Michael, Buddy';
 
-  const langCode = (language || 'en').toLowerCase();
-  const isHindi = langCode === 'hi' || /[\u0900-\u097F]/.test(prompt) || lower.includes('mujhe') || lower.includes('yaad') || lower.includes('kaun') || lower.includes('hai') || lower.includes('kahan');
-  const isAssamese = langCode === 'as';
-  const isManipuri = langCode === 'mni';
-  const isBengali = langCode === 'bn' || /[\u0980-\u09FF]/.test(prompt);
+  // Determine language accurately from input text or selected language
+  const { langCode } = detectSpokenLanguage(prompt, language);
 
-  // Location / Where Am I Intent
-  if (lower.includes('where am i') || lower.includes('kahan') || lower.includes('kahan hun') || lower.includes('place') || lower.includes('location') || lower.includes('outside') || lower.includes('park')) {
+  // Intent classification
+  const isWhereAmI = /\b(where am i|location|place|outside|park|kahan|kahan hun|kidhar|kuthe|kothay|yenga|ekkada)\b/i.test(lower);
+  const isWhoAmI = /\b(who am i|my name|who are you|confused|forget|kaun|kaun hun|kon|yaad nahi|yad nahin|kuch yaad nahi|naam ki|kavaru)\b/i.test(lower);
+  const isPhoto = /\b(photo|picture|memory|memories|tasveer|yaad|chhavi|chitram|padam)\b/i.test(lower);
+  const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message)\b/i.test(lower);
+  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time)\b/i.test(lower);
+
+  // 1. Where Am I Intent
+  if (isWhereAmI) {
     const loc = locationInfo?.locationDetails;
     const placeName = loc ? `${loc.neighborhood}, ${loc.city}` : 'your home safe area';
     const landmarks = loc?.nearbyLandmarks?.length ? loc.nearbyLandmarks.slice(0, 2).join(' and ') : 'the local garden and walkway';
 
-    if (isHindi) {
-      return {
-        text: `(tone: reassuring) ${honorific}, आप अपने घर के पास ${placeName} में बिल्कुल सुरक्षित हैं। (pause) आपके पास ${landmarks} हैं। सब कुछ शांत है।`,
-      };
+    if (langCode === 'hi') {
+      return { text: `(tone: reassuring) ${honorific}, आप अपने घर के पास ${placeName} में बिल्कुल सुरक्षित हैं। (pause) आपके पास ${landmarks} हैं। सब कुछ शांत है।` };
     }
-    return {
-      text: `(tone: reassuring) You are right near ${placeName}, ${honorific}. (pause) Nearby you have ${landmarks}. You are completely safe and peaceful.`,
-    };
+    if (langCode === 'gu') {
+      return { text: `(tone: reassuring) ${honorific}, તમે તમારા ઘર નજીક ${placeName} માં બિલકુલ સુરક્ષિત છો। (pause) ચિંતા ના કરશો, બધું શાંત છે।` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: reassuring) ${honorific}, तुम्ही तुमच्या घराजवळ ${placeName} मध्ये पूर्णपणे सुरक्षित आहात। (pause) काळजी करू नका।` };
+    }
+    if (langCode === 'bn') {
+      return { text: `(tone: reassuring) ${honorific}, আপনি আপনার বাড়ির কাছে ${placeName}-এ সম্পূর্ণ নিরাপদে আছেন। (pause) চিন্তা করবেন না।` };
+    }
+    if (langCode === 'as') {
+      return { text: `(tone: reassuring) ${honorific}, আপুনি আপোনাৰ ঘৰৰ ওচৰতে সুৰক্ষিতভাৱে আছোঁ। (pause) মই আপোনাৰ সংগী কাই।` };
+    }
+    if (langCode === 'ta') {
+      return { text: `(tone: reassuring) ${honorific}, நீங்கள் உங்கள் வீட்டிற்கு அருகில் பாதுகாப்பாக இருக்கிறீர்கள். (pause) நான் உங்களுடன் இருக்கிறேன்.` };
+    }
+    if (langCode === 'te') {
+      return { text: `(tone: reassuring) ${honorific}, మీరు మీ ఇంటి సమీపంలో పూర్తిగా సురక్షితంగా ఉన్నారు. (pause) ప్రశాంతంగా ఉండండి.` };
+    }
+    return { text: `(tone: reassuring) You are right near ${placeName}, ${honorific}. (pause) Nearby you have ${landmarks}. You are completely safe and peaceful.` };
   }
 
-  // 1. Identity & Confusion / Memory Loss Intent
-  if (
-    lower.includes('kaun') ||
-    lower.includes('kon') ||
-    lower.includes('who am i') ||
-    lower.includes('my name') ||
-    lower.includes('yad nahin') ||
-    lower.includes('yaad nahi') ||
-    lower.includes('kuch yad') ||
-    lower.includes('forget') ||
-    lower.includes('confused')
-  ) {
-    const familyNames = familyMembers.map((m: any) => m.name).join(', ') || 'Maria and Sarah';
-    if (isHindi) {
-      return {
-        text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है।`,
-      };
+  // 2. Who Am I / Identity Intent
+  if (isWhoAmI) {
+    if (langCode === 'hi') {
+      return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है।` };
     }
-    if (isAssamese) {
-      return {
-        text: `(tone: reassuring) আপুনি হ'ল ${honorific}। (pause) মই আপোনাৰ সংগী কাই। আপুনি ঘৰতে সুৰক্ষিতভাৱে আছোঁ।`,
-      };
+    if (langCode === 'gu') {
+      return { text: `(tone: reassuring) તમે ${honorific} છો। (pause) હું તમારી પ્રેમાળ સાથી કાઈ છું। તમારો પરિવાર, જેમ કે ${familyNames}, તમને ખૂબ પ્રેમ કરે છે।` };
     }
-    if (isManipuri) {
-      return {
-        text: `(tone: reassuring) নহাগী মিমিং ${honorific} নি। (pause) ঐনা নহাংগী ইবুংঙো কাইনি। নহা য়ুমদা অশেংবা লৈরি।`,
-      };
+    if (langCode === 'mr') {
+      return { text: `(tone: reassuring) तुम्ही ${honorific} आहात। (pause) मी तुमची सोबती काई आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते।` };
     }
-    return {
-      text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe at home. Your family, including ${familyNames}, loves you very much.`,
-    };
+    if (langCode === 'bn') {
+      return { text: `(tone: reassuring) আপনি হলেন ${honorific}। (pause) আমি আপনার সাথী কাই। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে।` };
+    }
+    if (langCode === 'as') {
+      return { text: `(tone: reassuring) আপুনি হ'ল ${honorific}। (pause) মই আপোনাৰ সংগী কাই। আপোনাৰ পৰিয়ালে আপোনাক বহুত ভাল পায়।` };
+    }
+    if (langCode === 'ta') {
+      return { text: `(tone: reassuring) நீங்கள் ${honorific}. (pause) நான் உங்கள் குரல் துணை காய். உங்கள் குடும்பத்தினர் ${familyNames} உங்களை மிகவும் நேசிக்கிறார்கள்.` };
+    }
+    if (langCode === 'te') {
+      return { text: `(tone: reassuring) మీరు ${honorific}. (pause) నేను మీ తోడు కాయ్. మీ కుటుంబం ${familyNames} మిమ్మల్ని ఎంతో ప్రేమిస్తోంది.` };
+    }
+    return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe at home. Your family, including ${familyNames}, loves you very much.` };
   }
 
-  // 2. Photos & Memories Intent
-  if (lower.includes('yaad') || lower.includes('yad') || lower.includes('photo') || lower.includes('tasveer') || lower.includes('picture') || lower.includes('memory') || lower.includes('wedding')) {
-    if (memories.length > 0) {
-      const topMem = memories[0];
+  // 3. Photos & Memories Intent
+  if (isPhoto && memories.length > 0) {
+    const topMem = memories[0];
+    if (langCode === 'hi') {
       return {
-        text: isHindi
-          ? `(tone: warm) ${honorific}, यह रही आपकी एक प्यारी याद: ${topMem.title}। (pause) ${topMem.descriptionForKai}`
-          : `(tone: warm) ${honorific}, here is a cherished memory photograph: ${topMem.title}. (pause) ${topMem.descriptionForKai}`,
+        text: `(tone: warm) ${honorific}, यह रही आपकी एक प्यारी याद: ${topMem.title}। (pause) ${topMem.descriptionForKai}`,
         functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
       };
     }
+    if (langCode === 'gu') {
+      return {
+        text: `(tone: warm) ${honorific}, આ રહી તમારી એક સુંદર યાદ: ${topMem.title}। (pause) ${topMem.descriptionForKai}`,
+        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
+      };
+    }
+    return {
+      text: `(tone: warm) ${honorific}, here is a cherished memory photograph: ${topMem.title}. (pause) ${topMem.descriptionForKai}`,
+      functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
+    };
   }
 
-  // 3. Caregiver Voice Note Intent
-  if (lower.includes('sandesh') || lower.includes('awaaz') || lower.includes('voice') || lower.includes('note') || lower.includes('message') || lower.includes('caregiver')) {
+  // 4. Caregiver Voice Note Intent
+  if (isVoiceNote) {
+    if (langCode === 'hi') {
+      return {
+        text: `(tone: gentle) आपके परिवार का वॉयस मैसेज बजाया जा रहा है, ${honorific}। (pause) कृपया ध्यान से सुनें।`,
+        functionCalls: [{ name: 'playVoiceNote', args: {} }],
+      };
+    }
+    if (langCode === 'gu') {
+      return {
+        text: `(tone: gentle) તમારા પરિવારનો વોઇસ મેસેજ વાગી રહ્યો છે, ${honorific}। (pause) કૃપા કરીને સાંભળો।`,
+        functionCalls: [{ name: 'playVoiceNote', args: {} }],
+      };
+    }
     return {
-      text: isHindi
-        ? `(tone: gentle) आपके केयरगिवर का वॉयस मैसेज बजाया जा रहा है, ${honorific}। (pause) कृपया ध्यान से सुनें।`
-        : `(tone: gentle) Playing your caregiver voice message now, ${honorific}. (pause) Please listen closely.`,
+      text: `(tone: gentle) Playing your family voice message now, ${honorific}. (pause) Please listen closely.`,
       functionCalls: [{ name: 'playVoiceNote', args: {} }],
     };
   }
 
-  // 4. Schedule & Tasks Intent
-  if (lower.includes('kaam') || lower.includes('schedule') || lower.includes('dawa') || lower.includes('routine') || lower.includes('today')) {
-    if (schedule.length > 0) {
-      const firstTask = schedule[0];
+  // 5. Schedule & Tasks Intent
+  if (isSchedule && schedule.length > 0) {
+    const firstTask = schedule[0];
+    if (langCode === 'hi') {
       return {
-        text: isHindi
-          ? `(tone: warm) आज ${firstTask.time} बजे आपका यह काम है, ${honorific}: ${firstTask.task}।`
-          : `(tone: warm) Today at ${firstTask.time}, your task is: ${firstTask.task}, ${honorific}.`,
+        text: `(tone: warm) आज ${firstTask.time} बजे आपका यह काम है, ${honorific}: ${firstTask.task}।`,
         functionCalls: [{ name: 'navigateToPage', args: { page: 'schedule' } }],
       };
     }
-  }
-
-  if (isHindi) {
     return {
-      text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी साथी काई हूँ। आप जो भी कहना चाहें, मैं आपको ध्यान से सुन रही हूँ। सब कुछ सुरक्षित व शांत है।`,
+      text: `(tone: warm) Today at ${firstTask.time}, your task is: ${firstTask.task}, ${honorific}.`,
+      functionCalls: [{ name: 'navigateToPage', args: { page: 'schedule' } }],
     };
   }
 
-  return {
-    text: `(tone: warm) Hello ${honorific}. (pause) I am right here by your side. Everything is safe and peaceful.`,
-  };
+  // General Gentle Reassurance in Detected Language
+  if (langCode === 'hi') {
+    return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी साथी काई हूँ। मैं आपको ध्यान से सुन रही हूँ। सब कुछ सुरक्षित व शांत है।` };
+  }
+  if (langCode === 'gu') {
+    return { text: `(tone: warm) નમસ્તે ${honorific}। (pause) હું તમારી સાથી કાઈ છું। બધું સુરક્ષિત અને શાંત છે।` };
+  }
+  if (langCode === 'mr') {
+    return { text: `(tone: warm) नमस्कार ${honorific}। (pause) मी तुमची सोबती काई आहे। सर्व काही सुरक्षित आणि शांत आहे।` };
+  }
+  if (langCode === 'bn') {
+    return { text: `(tone: warm) নমস্কার ${honorific}। (pause) আমি আপনার সাথী কাই। সব কিছু নিরাপদ ও শান্ত আছে।` };
+  }
+  if (langCode === 'as') {
+    return { text: `(tone: warm) নমস্কাৰ ${honorific}। (pause) মই আপোনাৰ সংগী কাই। সকলো শান্ত আৰু সুৰক্ষিত।` };
+  }
+  if (langCode === 'ta') {
+    return { text: `(tone: warm) வணக்கம் ${honorific}. (pause) நான் உங்கள் துணை காய். எல்லாம் பாதுகாப்பாக உள்ளது.` };
+  }
+  if (langCode === 'te') {
+    return { text: `(tone: warm) నమస్కారం ${honorific}. (pause) నేను మీ తోడు కాయ్. అంతా ప్రశాంతంగా ఉంది.` };
+  }
+
+  return { text: `(tone: warm) Hello ${honorific}. (pause) I am right here by your side. Everything is safe and peaceful.` };
 }
 
 // API Health
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Patient Profile Database Endpoints (MongoDB Atlas & Persistent Local Sync)
+app.get('/api/patients', async (req: Request, res: Response) => {
+  try {
+    const patients = await getAllPatients();
+    res.json(patients);
+  } catch (err: any) {
+    console.error('Failed to get patients:', err);
+    res.status(500).json({ error: 'Failed to retrieve patients' });
+  }
+});
+
+app.get('/api/patients/:id', async (req: Request, res: Response) => {
+  try {
+    const patient = await getPatientById(req.params.id as string);
+    if (!patient) {
+      return res.status(404).json({ error: 'Patient not found' });
+    }
+    res.json(patient);
+  } catch (err: any) {
+    console.error('Failed to get patient:', err);
+    res.status(500).json({ error: 'Failed to retrieve patient' });
+  }
+});
+
+app.post('/api/patients', async (req: Request, res: Response) => {
+  try {
+    const patientData = req.body;
+    if (!patientData || !patientData.id || !patientData.profile?.name) {
+      return res.status(400).json({ error: 'Valid patient data with ID and name is required' });
+    }
+    const saved = await savePatient(patientData);
+    res.json(saved);
+  } catch (err: any) {
+    console.error('Failed to save patient:', err);
+    res.status(500).json({ error: 'Failed to save patient' });
+  }
+});
+
+app.delete('/api/patients/:id', async (req: Request, res: Response) => {
+  try {
+    const success = await deletePatient(req.params.id as string);
+    res.json({ success });
+  } catch (err: any) {
+    console.error('Failed to delete patient:', err);
+    res.status(500).json({ error: 'Failed to delete patient' });
+  }
 });
 
 // Universal Multilingual TTS Audio Stream Endpoint
@@ -294,39 +440,107 @@ app.get('/api/tts', async (req: Request, res: Response) => {
   const targetLang = langMap[lang.toLowerCase()] || lang.split('-')[0].toLowerCase() || 'hi';
 
   try {
-    const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
-      clean.slice(0, 200)
-    )}&tl=${targetLang}&client=tw-ob`;
-
-    const response = await fetch(ttsUrl, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      },
-    });
-
-    if (!response.ok) {
-      const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
-        clean.slice(0, 200)
-      )}&tl=hi&client=tw-ob`;
-      const fallbackRes = await fetch(fallbackUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        },
-      });
-      const buffer = await fallbackRes.arrayBuffer();
-      res.setHeader('Content-Type', 'audio/mpeg');
-      return res.send(Buffer.from(buffer));
+    // Split clean text into chunks <= 180 characters along sentence/word boundaries
+    const chunks: string[] = [];
+    let remaining = clean;
+    while (remaining.length > 0) {
+      if (remaining.length <= 180) {
+        chunks.push(remaining);
+        break;
+      }
+      let splitIndex = -1;
+      const candidates = ['. ', '! ', '? ', ', ', '; ', ' '];
+      for (const cand of candidates) {
+        const idx = remaining.lastIndexOf(cand, 180);
+        if (idx > 30) {
+          splitIndex = idx + cand.length;
+          break;
+        }
+      }
+      if (splitIndex === -1) {
+        splitIndex = 180;
+      }
+      chunks.push(remaining.slice(0, splitIndex).trim());
+      remaining = remaining.slice(splitIndex).trim();
     }
 
-    const buffer = await response.arrayBuffer();
-    res.setHeader('Content-Type', 'audio/mpeg');
-    return res.send(Buffer.from(buffer));
+    const audioBuffers: Buffer[] = [];
+    for (const chunk of chunks) {
+      if (!chunk) continue;
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+        chunk
+      )}&tl=${targetLang}&client=tw-ob`;
+
+      try {
+        const response = await fetch(ttsUrl, {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        });
+        if (response.ok) {
+          const ab = await response.arrayBuffer();
+          audioBuffers.push(Buffer.from(ab));
+        } else {
+          // Fallback to Hindi if targetLang fails
+          const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(
+            chunk
+          )}&tl=hi&client=tw-ob`;
+          const fbRes = await fetch(fallbackUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            },
+          });
+          if (fbRes.ok) {
+            const fbAb = await fbRes.arrayBuffer();
+            audioBuffers.push(Buffer.from(fbAb));
+          }
+        }
+      } catch (err: any) {
+        console.warn('TTS chunk fetch notice:', err.message);
+      }
+    }
+
+    if (audioBuffers.length > 0) {
+      const combined = Buffer.concat(audioBuffers);
+      res.setHeader('Content-Type', 'audio/mpeg');
+      return res.send(combined);
+    }
+
+    res.status(500).json({ error: 'TTS audio synthesis failed' });
   } catch (err: any) {
     console.error('TTS endpoint error:', err.message);
     res.status(500).json({ error: 'TTS generation failed' });
   }
 });
+
+const LANGUAGE_NAME_MAP: Record<string, string> = {
+  hi: 'Hindi (हिन्दी)',
+  en: 'English',
+  gu: 'Gujarati (ગુજરાતી)',
+  mr: 'Marathi (मराठी)',
+  bn: 'Bengali (বাংলা)',
+  as: 'Assamese (অসমীয়া)',
+  mni: 'Manipuri / Meitei (মৈতৈলোন্)',
+  brx: 'Bodo (बर\')',
+  kha: 'Khasi (Ka Ktien Khasi)',
+  lus: 'Mizo (Mizo ṭawng)',
+  nag: 'Nagamese (নাগামী)',
+  ne: 'Nepali (नेपाली)',
+  trp: 'Kokborok (कॉकबरॉक)',
+  ta: 'Tamil (தமிழ்)',
+  te: 'Telugu (తెలుగు)',
+  kn: 'Kannada (ಕನ್ನಡ)',
+  ml: 'Malayalam (മലയാളം)',
+  pa: 'Punjabi (ਪੰਜਾਬੀ)',
+  or: 'Odia (ଓଡ଼ିଆ)',
+  ur: 'Urdu (اردو)',
+  es: 'Spanish (Español)',
+  fr: 'French (Français)',
+  de: 'German (Deutsch)',
+  zh: 'Mandarin Chinese (中文)',
+  ja: 'Japanese (日本語)',
+};
 
 // Gemini Chat Endpoint
 app.post('/api/chat', async (req: Request, res: Response) => {
@@ -337,10 +551,13 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   }
 
   const userLang = language || 'en';
+  const detected = detectSpokenLanguage(prompt, userLang);
+  const targetLangName = detected.langName;
+  const activeLangCode = detected.langCode;
   const patientName = patientData?.profile?.name || 'the user';
 
-  // 1. Try Sarvam AI first if key exists
-  const sarvamRes = await trySarvamAIResponse(prompt, patientName, userLang);
+  // 1. Try Sarvam AI first if key exists for Indic speech
+  const sarvamRes = await trySarvamAIResponse(prompt, patientName, activeLangCode);
   if (sarvamRes) {
     return res.json(sarvamRes);
   }
@@ -349,7 +566,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
   // If no AI client available, use smart local fallback
   if (!ai) {
-    const fallback = generateLocalFallbackResponse(prompt, patientData, userLang, locationInfo);
+    const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo);
     return res.json(fallback);
   }
 
@@ -401,9 +618,12 @@ REAL-TIME GPS LOCATION:
     const systemInstruction = `You are Kai, a serene, patient, and loving AI voice companion specifically designed for individuals needing gentle cognitive and memory support.
 
 MANDATORY MULTILINGUAL & TRANSLITERATION INSTRUCTIONS:
-- Preferred Language Code: ${userLang}
+- Detected Spoken Language: ${targetLangName} (Language Code: ${activeLangCode})
 - Patient's Spoken Input: "${prompt}"
-- CRITICAL REQUIREMENT: You MUST speak and respond strictly in the language of the patient's input "${prompt}" or in the preferred language (${userLang}).
+- CRITICAL REQUIREMENT: You MUST speak and respond strictly in ${targetLangName} matching the patient's current language.
+- If the patient speaks in English, reply in gentle English.
+- If the patient speaks in Hindi / Hinglish, reply in warm natural Hindi (Devanagari script).
+- If the patient speaks in Gujarati, Marathi, Bengali, Assamese, Tamil, Telugu, etc., reply in that specific language.
 - Always address the patient respectfully using their cultural honorific (e.g. "${patientName} ${culturalProfile.honorificTitle || ''}").
 
 ${culturalContext}
@@ -414,9 +634,9 @@ CORE PERSONALITY & TOOL GUIDELINES:
 1. Speak with extraordinary warmth, patience, clarity, and kindness.
 2. Keep sentences short, comforting, and easy to understand (1 to 3 short sentences).
 3. Use prosody markup in your text response to guide speech rhythm:
-   - (tone: warm)
-   - (tone: gentle)
-   - (tone: reassuring)
+   - (tone: warm) -> general comfort
+   - (tone: gentle) -> reminders
+   - (tone: reassuring) -> confusion or fear
    - (pause) -> natural pause
 4. ALWAYS provide spoken text in your response even when calling a function tool!
 5. When the user asks where they are, what is outside, or about nearby places, USE THE REAL-TIME GPS SURROUNDINGS & LANDMARKS PROVIDED ABOVE to give accurate, comforting, location-aware answers!
@@ -450,16 +670,13 @@ Always address ${patientName} ${culturalProfile.honorificTitle || ''} gently and
     }
     contents.push({ role: 'user', parts: [{ text: prompt }] });
 
-    // Comprehensive list of models to cycle through on rate limits
+    // Primary high-speed active models
     const modelsToTry = [
-      'gemini-3.6-flash',
-      'gemini-3.7-flash',
-      'gemini-3.8-flash',
-      'gemini-3.5-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash',
+      'gemini-2.5-flash-lite',
       'gemini-flash-latest',
-      'gemini-flash-lite-latest',
     ];
 
     let response: any = null;
@@ -467,24 +684,29 @@ Always address ${patientName} ${culturalProfile.honorificTitle || ''} gently and
 
     for (const modelName of modelsToTry) {
       try {
-        response = await ai.models.generateContent({
-          model: modelName,
-          contents,
-          config: {
-            systemInstruction,
-            temperature: 0.7,
-            tools: [{ functionDeclarations: [SHOW_MEMORY_TOOL, PLAY_VOICE_NOTE_TOOL, NAVIGATE_TOOL] }],
-          },
-        });
+        response = await Promise.race([
+          ai.models.generateContent({
+            model: modelName,
+            contents,
+            config: {
+              systemInstruction,
+              temperature: 0.7,
+              tools: [{ functionDeclarations: [SHOW_MEMORY_TOOL, PLAY_VOICE_NOTE_TOOL, NAVIGATE_TOOL] }],
+            },
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('AI generation timeout')), 3500)),
+        ]);
         if (response) break;
       } catch (err: any) {
-        console.warn(`Model ${modelName} failed or rate limited: ${err.message}. Trying next model...`);
+        console.warn(`Model ${modelName} notice: ${err.message}.`);
         lastError = err;
       }
     }
 
     if (!response) {
-      throw lastError || new Error('All Gemini models failed');
+      // Immediate intelligent fallback so pitch never hangs
+      const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo);
+      return res.json(fallback);
     }
 
     let replyText = response.text || '';
@@ -531,6 +753,9 @@ Always address ${patientName} ${culturalProfile.honorificTitle || ''} gently and
 });
 
 async function startServer() {
+  // Initialize Cloud MongoDB Atlas or Persistent File Storage
+  await initDatabase();
+
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

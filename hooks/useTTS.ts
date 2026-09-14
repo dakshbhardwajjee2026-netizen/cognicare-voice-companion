@@ -1,5 +1,4 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
-import { cleanTextForSpeech } from '../utils/parser';
 import { unlockAudio, playGentleChime } from '../utils/audio';
 
 export interface UseTTSOptions {
@@ -16,15 +15,17 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
   const [speechRate, setSpeechRate] = useState<number>(initialRate);
   const [selectedVoice, setSelectedVoice] = useState<SpeechSynthesisVoice | null>(null);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+
   const isSpeakingRef = useRef(false);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
   const watchdogTimerRef = useRef<any>(null);
 
   useEffect(() => {
     setSpeechRate(initialRate);
   }, [initialRate]);
 
-  // Load and pick optimal calming voice for active language
+  // Load and pick optimal calming voice for active language (for fallback)
   const updateVoices = useCallback(() => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     const voices = window.speechSynthesis.getVoices();
@@ -32,10 +33,9 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
       setAvailableVoices(voices);
 
       const prefix = (langId || 'en').split('-')[0].toLowerCase();
-      // Prioritize voice matching target language prefix, otherwise fallback
       const preferred =
         voices.find((v) => v.lang.toLowerCase().startsWith(prefix)) ||
-        voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Karen') || v.name.includes('Jenny') || v.name.includes('Zira') || v.name.includes('Victoria'))) ||
+        voices.find((v) => v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Jenny') || v.name.includes('Zira'))) ||
         voices.find((v) => v.lang.startsWith('en-US')) ||
         voices.find((v) => v.lang.startsWith('en')) ||
         voices[0];
@@ -51,15 +51,17 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
 
     return () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // ignore
+        }
       }
       if (watchdogTimerRef.current) {
         clearTimeout(watchdogTimerRef.current);
       }
     };
   }, [updateVoices]);
-
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const stop = useCallback(() => {
     if (watchdogTimerRef.current) {
@@ -97,14 +99,11 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
         return;
       }
 
-      // Unlock browser audio context and speech synthesis
+      // Unlock browser audio context
       unlockAudio();
 
-      // Stop previous utterance cleanly
-      stop();
-
-      // Clean prosody markup: replace (pause) and (long pause) with natural punctuation pauses
-      let cleanText = text
+      // Clean prosody markup
+      const cleanText = text
         .replace(/\(tone:\s*[^)]+\)/gi, '')
         .replace(/\(long pause\)/gi, '... ')
         .replace(/\(pause\)/gi, ', ')
@@ -116,18 +115,15 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
         return;
       }
 
+      // Stop previous utterance
+      stop();
+
       // Optional gentle chime on start
       if (options?.playChime !== false) {
         playGentleChime('response');
       }
 
       const effectiveRate = options?.rate || speechRate || 0.85;
-      const targetPrefix = (langId || 'en').split('-')[0].toLowerCase();
-      const synth = typeof window !== 'undefined' && 'speechSynthesis' in window ? window.speechSynthesis : null;
-      const voices = synth ? synth.getVoices() : [];
-
-      // Check if browser has a native voice installed for this language
-      const nativeVoice = voices.find((v) => v.lang.toLowerCase().startsWith(targetPrefix));
 
       const finishSpeech = () => {
         if (watchdogTimerRef.current) {
@@ -146,56 +142,40 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
         options?.onEnd?.();
       };
 
-      // Watchdog timer: automatically release isSpeaking state
+      // Watchdog timer: automatically release isSpeaking state if playback stalls
       const wordCount = cleanText.split(/\s+/).length;
-      const expectedDurationMs = Math.max(4000, (wordCount * 350 + 2000) / effectiveRate);
-      watchdogTimerRef.current = setTimeout(() => {
-        finishSpeech();
-      }, expectedDurationMs);
+      const expectedDurationMs = Math.max(6000, (wordCount * 550 + 4000) / effectiveRate);
+      watchdogTimerRef.current = setTimeout(finishSpeech, expectedDurationMs);
 
-      // If no native browser voice for this regional language (e.g. Gujarati, Assamese, Manipuri, Bengali, etc.), use /api/tts endpoint
-      if (!nativeVoice || !['en', 'hi'].includes(targetPrefix)) {
-        try {
-          const ttsAudioUrl = `/api/tts?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(langId)}`;
-          const audio = new Audio(ttsAudioUrl);
-          audio.playbackRate = Math.max(0.75, Math.min(1.2, effectiveRate));
-          activeAudioRef.current = audio;
-
-          audio.onplay = () => {
-            isSpeakingRef.current = true;
-            setIsSpeaking(true);
-            options?.onStart?.();
-          };
-
-          audio.onended = () => {
-            finishSpeech();
-          };
-
-          audio.onerror = (e) => {
-            console.warn('/api/tts audio playback notice:', e);
-            finishSpeech();
-          };
-
-          audio.play().catch((err) => {
-            console.warn('/api/tts play exception, attempting browser synth fallback:', err);
-            if (synth) {
-              const utterance = new SpeechSynthesisUtterance(cleanText);
-              utterance.rate = effectiveRate;
-              utterance.onend = finishSpeech;
-              utterance.onerror = finishSpeech;
-              synth.speak(utterance);
-            } else {
-              finishSpeech();
-            }
-          });
-          return;
-        } catch (err) {
-          console.warn('Audio construction error:', err);
-        }
+      // Detect script language from actual text content to avoid reading Indic text with English voices
+      let effectiveLang = (langId || 'en').split('-')[0].toLowerCase();
+      if (/[\u0900-\u097F]/.test(cleanText)) {
+        effectiveLang = 'hi'; // Devanagari Hindi / Marathi
+      } else if (/[\u0980-\u09FF]/.test(cleanText)) {
+        effectiveLang = 'bn'; // Bengali / Assamese
+      } else if (/[\u0A80-\u0AFF]/.test(cleanText)) {
+        effectiveLang = 'gu'; // Gujarati
+      } else if (/[\u0A00-\u0A7F]/.test(cleanText)) {
+        effectiveLang = 'pa'; // Gurmukhi Punjabi
+      } else if (/[\u0B80-\u0BFF]/.test(cleanText)) {
+        effectiveLang = 'ta'; // Tamil
+      } else if (/[\u0C00-\u0C7F]/.test(cleanText)) {
+        effectiveLang = 'te'; // Telugu
+      } else if (/[\u0C80-\u0CFF]/.test(cleanText)) {
+        effectiveLang = 'kn'; // Kannada
+      } else if (/[\u0D00-\u0D7F]/.test(cleanText)) {
+        effectiveLang = 'ml'; // Malayalam
+      } else if (/[\u0B00-\u0B7F]/.test(cleanText)) {
+        effectiveLang = 'or'; // Odia
+      } else if (/[\u0600-\u06FF]/.test(cleanText)) {
+        effectiveLang = 'ur'; // Urdu
       }
 
-      // Otherwise use Web Speech API for native voices
-      if (synth) {
+      console.log(`[TTS] Speaking text (effectiveLang: ${effectiveLang}, requested: ${langId}):`, cleanText.slice(0, 60));
+
+      // 1. Direct Web Speech API (Only if genuine matching native voice for target script exists)
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        const synth = window.speechSynthesis;
         try {
           if (synth.paused) {
             synth.resume();
@@ -204,43 +184,81 @@ export const useTTS = (initialRate = 0.85, langId = 'en') => {
           // ignore
         }
 
-        isSpeakingRef.current = true;
-        setIsSpeaking(true);
-        options?.onStart?.();
+        const voices = synth.getVoices() || [];
+        const matchingVoice =
+          voices.find((v) => v.lang.toLowerCase().startsWith(effectiveLang) && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('David') || v.name.includes('Zira') || v.name.includes('Jenny') || v.name.includes('Samantha'))) ||
+          voices.find((v) => v.lang.toLowerCase().startsWith(effectiveLang));
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.rate = Math.max(0.5, Math.min(1.2, effectiveRate));
-        utterance.pitch = 1.05;
-        utterance.volume = 1.0;
-        if (nativeVoice) {
-          utterance.voice = nativeVoice;
-          utterance.lang = nativeVoice.lang;
-        }
+        // For pure English text without Indic characters, or if a dedicated native browser voice exists:
+        const hasIndicScript = /[\u0900-\u0D7F\u0600-\u06FF\u4E00-\u9FFF]/.test(cleanText);
+        if (matchingVoice || (effectiveLang === 'en' && !hasIndicScript)) {
+          const voice = matchingVoice || voices.find((v) => v.lang.startsWith('en')) || voices[0] || null;
 
-        activeUtteranceRef.current = utterance;
-        (window as any)._kaiActiveUtterance = utterance;
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.rate = Math.max(0.7, Math.min(1.15, effectiveRate));
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
 
-        utterance.onend = () => finishSpeech();
-        utterance.onerror = (e) => {
-          if (e.error !== 'interrupted' && e.error !== 'canceled') {
-            console.warn('TTS utterance notice:', e.error);
-            options?.onError?.(e);
+          if (voice) {
+            utterance.voice = voice;
+            utterance.lang = voice.lang;
           }
+
+          activeUtteranceRef.current = utterance;
+          (window as any)._kaiActiveUtterance = utterance;
+
+          utterance.onstart = () => {
+            isSpeakingRef.current = true;
+            setIsSpeaking(true);
+            options?.onStart?.();
+          };
+
+          utterance.onend = () => {
+            finishSpeech();
+          };
+
+          utterance.onerror = (e) => {
+            if (e.error !== 'interrupted' && e.error !== 'canceled') {
+              console.warn('Utterance notice:', e.error);
+            }
+            finishSpeech();
+          };
+
+          try {
+            synth.speak(utterance);
+            return;
+          } catch (err) {
+            console.warn('Synth speak error, falling back to audio stream:', err);
+          }
+        }
+      }
+
+      // 2. Fallback: Streaming audio from server /api/tts endpoint (High quality neural Google Translate TTS)
+      try {
+        console.log(`[TTS] Routing to neural streaming /api/tts for lang '${effectiveLang}'`);
+        const ttsAudioUrl = `/api/tts?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(effectiveLang)}`;
+        const audio = new Audio(ttsAudioUrl);
+        audio.playbackRate = Math.max(0.75, Math.min(1.2, effectiveRate));
+        activeAudioRef.current = audio;
+
+        audio.onplay = () => {
+          isSpeakingRef.current = true;
+          setIsSpeaking(true);
+          options?.onStart?.();
+        };
+
+        audio.onended = () => {
           finishSpeech();
         };
 
-        setTimeout(() => {
-          try {
-            if (synth.paused) {
-              synth.resume();
-            }
-            synth.speak(utterance);
-          } catch (err) {
-            console.error('Error invoking synth.speak:', err);
-            finishSpeech();
-          }
-        }, 40);
-      } else {
+        audio.onerror = () => {
+          finishSpeech();
+        };
+
+        audio.play().catch(() => {
+          finishSpeech();
+        });
+      } catch {
         finishSpeech();
       }
     },

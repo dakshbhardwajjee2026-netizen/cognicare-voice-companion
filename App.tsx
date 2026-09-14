@@ -11,15 +11,18 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { PatientData, ChatMessage, Memory, AlertPayload, ScheduleEvent, VoiceNote, PatientSettings, AssessmentResult, SpeechSettings, CulturalProfile } from './types';
+import { DEMO_PATIENT } from './constants';
 import { dataService } from './services/dataService';
 import { sendChatMessage } from './services/geminiService';
 import { t, getLanguageOption } from './services/i18n';
 import { useTTS } from './hooks/useTTS';
 import { useSTT } from './hooks/useSTT';
+import { unlockAudio } from './utils/audio';
 import { useProactiveSystem } from './hooks/useProactiveSystem';
 import { useGeolocation } from './hooks/useGeolocation';
 
 import { LoginView } from './components/LoginView';
+import { OnboardingWizard } from './components/OnboardingWizard';
 import { CompanionDisplay } from './components/CompanionDisplay';
 import { ScheduleView } from './components/ScheduleView';
 import { MemoriesView } from './components/MemoriesView';
@@ -40,6 +43,7 @@ export const App: React.FC = () => {
   // Authentication & Patient State
   const [patientData, setPatientData] = useState<PatientData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Active language state
   const [currentLanguage, setCurrentLanguage] = useState<string>(() => {
@@ -117,8 +121,9 @@ export const App: React.FC = () => {
   // Handle user speech prompt
   const handleUserMessage = useCallback(
     async (userText: string) => {
-      const currentPatient = patientDataRef.current;
-      if (!userText || !userText.trim() || !currentPatient) return;
+      console.log('[App.tsx Diagnostic] handleUserMessage invoked with:', userText);
+      const currentPatient = patientDataRef.current || patientData || DEMO_PATIENT;
+      if (!userText || !userText.trim()) return;
 
       lastUserActivityRef.current = Date.now();
       const trimmed = userText.trim();
@@ -242,24 +247,44 @@ export const App: React.FC = () => {
     toggleListening,
   } = useSTT({
     sttCode,
-    isKaiSpeaking: isSpeaking,
+    isKaiSpeaking: isSpeaking || isKaiThinking,
     onFinalTranscript: (final) => {
-      if (!isSpeaking && !isSleepMode) {
+      console.log('[App.tsx Diagnostic] onFinalTranscript received:', final, { isSpeaking, isKaiThinking, isSleepMode });
+      if (!isSpeaking && !isKaiThinking && !isSleepMode) {
         lastUserActivityRef.current = Date.now();
         handleUserMessage(final);
+      } else {
+        console.warn('[App.tsx Diagnostic] Ignored final transcript due to active state:', { isSpeaking, isKaiThinking, isSleepMode });
       }
     },
   });
 
-  // Auto-start listening on profile load or when exiting sleep mode
+  // Start listening seamlessly on first user interaction or when active
   useEffect(() => {
-    if (patientData && !isSleepMode) {
-      const timer = setTimeout(() => {
+    if (!patientData || isSleepMode || isListening) return;
+
+    const handleFirstGesture = async () => {
+      console.log('[App.tsx Diagnostic] User first gesture detected. Unlocking audio and requesting mic permission...');
+      unlockAudio();
+      try {
+        const granted = await requestMicPermission();
+        console.log('[App.tsx Diagnostic] First gesture mic permission result:', granted);
+      } catch (err) {
+        console.warn('[App.tsx Diagnostic] requestMicPermission error on first gesture:', err);
+      }
+      if (!isSleepMode) {
         startListening();
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [patientData, isSleepMode, startListening]);
+      }
+    };
+
+    window.addEventListener('pointerdown', handleFirstGesture, { once: true });
+    window.addEventListener('keydown', handleFirstGesture, { once: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+  }, [patientData, isSleepMode, isListening, startListening]);
 
   // Wake Up Kai action handler
   const handleWakeUpKai = useCallback(
@@ -474,9 +499,23 @@ export const App: React.FC = () => {
   }
 
   if (!patientData) {
+    if (isOnboardingOpen) {
+      return (
+        <OnboardingWizard
+          initialLanguage={currentLanguage}
+          onComplete={(id, data) => {
+            setIsOnboardingOpen(false);
+            handleLogin(id, data);
+          }}
+          onCancel={() => setIsOnboardingOpen(false)}
+        />
+      );
+    }
+
     return (
       <LoginView
         onLogin={handleLogin}
+        onOpenOnboarding={() => setIsOnboardingOpen(true)}
         getPatientData={dataService.getPatientData.bind(dataService)}
         createProfile={dataService.createProfile.bind(dataService)}
         currentLanguage={currentLanguage}

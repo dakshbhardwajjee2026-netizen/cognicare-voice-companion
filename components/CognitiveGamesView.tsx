@@ -91,13 +91,17 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
   const [selectedMemAnswer, setSelectedMemAnswer] = useState<number | null>(null);
   const [memScore, setMemScore] = useState(0);
 
-  // Generate dynamic quiz from patient's memories and family members
+  // Generate dynamic personalized quiz from patient's memories, family circle, schedule, and cultural profile
   useEffect(() => {
     const questions: any[] = [];
     const memories = patientData.memories || [];
     const family = patientData.familyMembers || [];
+    const schedule = patientData.schedule || [];
+    const culture = patientData.culturalProfile;
+    const patientName = patientData.profile?.name || 'Friend';
+    const honorific = culture?.honorificTitle || 'Ji';
 
-    // Photo & Memory Title questions
+    // 1. Photo & Memory Title questions
     memories.forEach((mem) => {
       const otherMemories = memories.filter((m) => m.title !== mem.title);
       const wrongOptions = otherMemories.slice(0, 2).map((m) => m.title);
@@ -118,24 +122,98 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
       });
     });
 
-    // Family Relationship questions
+    // 2. Family Relationship & Context questions
     family.forEach((member) => {
-      const otherRelationships = ['Daughter', 'Wife', 'Son', 'Family Golden Retriever', 'Grandchild', 'Neighbor']
-        .filter((r) => r !== member.relationship)
+      const otherRelationships = ['Daughter', 'Wife', 'Son', 'Family Dog', 'Granddaughter', 'Primary Caregiver', 'Sister', 'Brother']
+        .filter((r) => r.toLowerCase() !== (member.relationship || '').toLowerCase())
         .slice(0, 2);
       const options = [member.relationship, ...otherRelationships].sort(() => 0.5 - Math.random());
       const correctIdx = options.indexOf(member.relationship);
 
       questions.push({
         type: 'family',
-        question: `Who is ${member.name} in your family?`,
+        question: `Who is ${member.name} in your family circle?`,
         image: member.photoUrl,
-        story: member.descriptionForKai,
+        story: member.descriptionForKai || `${member.name} is your caring ${member.relationship}.`,
         options,
         correct: correctIdx,
         encouragement: `That's right! ${member.name} is your beloved ${member.relationship}.`,
       });
+
+      // Context question about family role if description is detailed
+      if (member.descriptionForKai && member.descriptionForKai.length > 20) {
+        const wrongNotes = [
+          'Visits only during holidays once a year',
+          'Lives in another country and writes letters',
+        ];
+        const optionsContext = [member.descriptionForKai, ...wrongNotes].sort(() => 0.5 - Math.random());
+        questions.push({
+          type: 'family_context',
+          question: `What special moments or role does ${member.name} share with you?`,
+          image: member.photoUrl,
+          story: member.descriptionForKai,
+          options: optionsContext,
+          correct: optionsContext.indexOf(member.descriptionForKai),
+          encouragement: `Splendid memory! ${member.name} loves spending those warm moments with you.`,
+        });
+      }
     });
+
+    // 3. Cultural & Honorific Identity questions
+    if (culture?.honorificTitle) {
+      const fullAddressedName = `${patientName} ${honorific}`;
+      const wrongTitles = [`Captain ${patientName}`, `Dr. ${patientName}`, `${patientName} Sahib`].filter(t => t !== fullAddressedName).slice(0, 2);
+      const options = [fullAddressedName, ...wrongTitles].sort(() => 0.5 - Math.random());
+
+      questions.push({
+        type: 'honorific',
+        question: `How does Kai address you with warmth and cultural respect?`,
+        image: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600&auto=format&fit=crop&q=80',
+        story: `Kai addresses you as "${fullAddressedName}" honoring your ${culture.ethnicBackground || 'family tradition'}.`,
+        options,
+        correct: options.indexOf(fullAddressedName),
+        encouragement: `Exact! Kai always addresses you with warmth as ${fullAddressedName}.`,
+      });
+    }
+
+    if (culture?.comfortsAndCustoms) {
+      const wrongHabits = [
+        'Drinking cold iced coffee at midnight',
+        'Running 10 miles every morning at dawn',
+      ];
+      const correctHabit = culture.comfortsAndCustoms;
+      const options = [correctHabit, ...wrongHabits].sort(() => 0.5 - Math.random());
+
+      questions.push({
+        type: 'culture_custom',
+        question: `What is your cherished daily comfort habit or tradition?`,
+        image: 'https://images.unsplash.com/photo-1576092768241-dec231879fc3?w=600&auto=format&fit=crop&q=80',
+        story: `Your caregiver notes that you love: ${culture.comfortsAndCustoms}`,
+        options,
+        correct: options.indexOf(correctHabit),
+        encouragement: `Wonderful! You love your comforting routine: ${culture.comfortsAndCustoms}`,
+      });
+    }
+
+    // 4. Daily Medication & Routine questions
+    if (schedule.length > 0) {
+      schedule.slice(0, 2).forEach((evt) => {
+        const wrongTasks = ['Attend board meeting', 'Flight departure at airport', 'Mow the lawn']
+          .filter(t => t !== evt.task)
+          .slice(0, 2);
+        const options = [evt.task, ...wrongTasks].sort(() => 0.5 - Math.random());
+
+        questions.push({
+          type: 'schedule_routine',
+          question: `What is scheduled for you in your daily routine at ${evt.time}?`,
+          image: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=600&auto=format&fit=crop&q=80',
+          story: `At ${evt.time}, your routine task is: "${evt.task}". ${evt.instructions || ''}`,
+          options,
+          correct: options.indexOf(evt.task),
+          encouragement: `Spot on! At ${evt.time}, your task is "${evt.task}".`,
+        });
+      });
+    }
 
     setMemoryQuestions(questions.sort(() => 0.5 - Math.random()));
     setCurrentMemIdx(0);
@@ -376,13 +454,24 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
     }
   };
 
-  // GAME 4: DAILY ROUTINE RECALL STATE
-  const masterRoutineList = [
-    { id: '1', title: 'Wake up in the morning', time: '7:00 AM', icon: '🌅' },
-    { id: '2', title: 'Brush teeth & wash up', time: '7:30 AM', icon: '🪥' },
-    { id: '3', title: 'Enjoy breakfast & tea', time: '8:15 AM', icon: '🍳' },
-    { id: '4', title: 'Take morning medicine', time: '9:00 AM', icon: '💊' },
-  ];
+  // GAME 4: DAILY ROUTINE RECALL STATE (Personalized from Patient Schedule)
+  const activeRoutineList = React.useMemo(() => {
+    const sched = patientData.schedule || [];
+    if (sched.length >= 3) {
+      return sched.slice(0, 4).map((item, idx) => ({
+        id: `sched-${idx}`,
+        title: item.task,
+        time: item.time,
+        icon: idx === 0 ? '🌅' : idx === 1 ? '🍳' : idx === 2 ? '☕' : '🌙',
+      }));
+    }
+    return [
+      { id: '1', title: 'Wake up & gentle stretch', time: '07:30 AM', icon: '🌅' },
+      { id: '2', title: 'Breakfast & morning medicine', time: '08:30 AM', icon: '🍳' },
+      { id: '3', title: 'Afternoon tea & garden walk', time: '04:00 PM', icon: '☕' },
+      { id: '4', title: 'Evening dinner & family talk', time: '07:30 PM', icon: '🌙' },
+    ];
+  }, [patientData.schedule]);
 
   const [scrambledRoutine, setScrambledRoutine] = useState<any[]>([]);
   const [selectedRoutineSeq, setSelectedRoutineSeq] = useState<string[]>([]);
@@ -391,7 +480,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
   const [routineScore, setRoutineScore] = useState<number | null>(null);
 
   const initDailyRoutine = () => {
-    const shuffled = [...masterRoutineList].sort(() => 0.5 - Math.random());
+    const shuffled = [...activeRoutineList].sort(() => 0.5 - Math.random());
     setScrambledRoutine(shuffled);
     setSelectedRoutineSeq([]);
     setRoutinePhase('ordering');
@@ -408,15 +497,15 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
       const nextSeq = [...selectedRoutineSeq, id];
       setSelectedRoutineSeq(nextSeq);
 
-      if (nextSeq.length === masterRoutineList.length) {
+      if (nextSeq.length === activeRoutineList.length) {
         let correctInPlace = 0;
         nextSeq.forEach((itemId, pos) => {
-          if (itemId === masterRoutineList[pos].id) {
+          if (itemId === activeRoutineList[pos].id) {
             correctInPlace++;
           }
         });
 
-        const accuracy = correctInPlace / masterRoutineList.length;
+        const accuracy = correctInPlace / activeRoutineList.length;
         const timeTaken = (Date.now() - routineStartTime) / 1000;
 
         setRoutineScore(correctInPlace);
@@ -426,7 +515,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
         if (accuracy === 1) {
           onSpeak('(tone: warm) Perfect routine sequence! Your memory for daily habits is strong and sharp.');
         } else {
-          onSpeak(`(tone: gentle) Wonderful effort! You placed ${correctInPlace} out of 4 steps in perfect chronological order.`);
+          onSpeak(`(tone: gentle) Wonderful effort! You placed ${correctInPlace} out of ${activeRoutineList.length} steps in perfect chronological order.`);
         }
       }
     }

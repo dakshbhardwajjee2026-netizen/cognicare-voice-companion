@@ -45,7 +45,7 @@ export const KaiControls: React.FC<KaiControlsProps> = ({
   onPutKaiToSleep,
   onWakeUpKai,
 }) => {
-  const [showTextInput, setShowTextInput] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(true);
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [inputText, setInputText] = useState('');
 
@@ -139,7 +139,7 @@ export const KaiControls: React.FC<KaiControlsProps> = ({
 
     return {
       text: 'Microphone Paused',
-      subtext: 'Hands-free mode is starting...',
+      subtext: 'Tap the Kai orb to talk',
       bgClass: 'bg-slate-700 text-white shadow-md ring-2 ring-slate-200 hover:bg-slate-800',
       icon: <MicOff className="w-8 h-8 text-white" />,
     };
@@ -197,24 +197,6 @@ export const KaiControls: React.FC<KaiControlsProps> = ({
           >
             Cancel
           </button>
-        </div>
-      )}
-
-      {/* Microphone notice or error banner */}
-      {errorMessage && !isSleepMode && (
-        <div className="w-full max-w-sm mb-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 flex items-center justify-between space-x-2">
-          <div className="flex items-center space-x-1.5">
-            <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-            <span className="leading-tight">{errorMessage}</span>
-          </div>
-          {onRequestPermission && (
-            <button
-              onClick={onRequestPermission}
-              className="flex-shrink-0 px-2 py-1 bg-amber-600 text-white text-[10px] font-bold rounded-lg hover:bg-amber-700 transition"
-            >
-              Allow Mic
-            </button>
-          )}
         </div>
       )}
 
