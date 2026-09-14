@@ -15,6 +15,16 @@ interface IWindow extends Window {
   webkitSpeechRecognition?: any;
 }
 
+// Mobile device detection helper
+const isMobileDevice = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+  const isSmallScreen = typeof window !== 'undefined' && window.innerWidth < 768;
+  return isMobileUA || (isTouch && isSmallScreen);
+};
+
 export const useSTT = (options: UseSTTOptions = {}) => {
   const { onFinalTranscript, onInterimTranscript, continuous = true, sttCode = 'en-US', isKaiSpeaking = false } = options;
 
@@ -218,10 +228,17 @@ export const useSTT = (options: UseSTTOptions = {}) => {
         })),
       });
 
-      mediaStreamRef.current = stream;
       setHasMicPermission(true);
       setError(null);
-      startVolumeAnalyser(stream);
+
+      if (isMobileDevice()) {
+        console.log('[Microphone Diagnostic] Mobile device detected: releasing getUserMedia stream to free hardware mic for SpeechRecognition');
+        tracks.forEach((t) => t.stop());
+        mediaStreamRef.current = null;
+      } else {
+        mediaStreamRef.current = stream;
+        startVolumeAnalyser(stream);
+      }
       return true;
     } catch (err: any) {
       console.error('[Microphone Diagnostic] getUserMedia FAILURE:', {
@@ -311,9 +328,10 @@ export const useSTT = (options: UseSTTOptions = {}) => {
     }
 
     try {
-      console.log('[STT Diagnostic] Initializing new SpeechRecognition instance with lang:', sttCode || 'en-US');
+      const isMobile = isMobileDevice();
+      console.log('[STT Diagnostic] Initializing new SpeechRecognition instance. isMobile:', isMobile, 'lang:', sttCode || 'en-US');
       const recognition = new SpeechRecognitionClass();
-      recognition.continuous = true;
+      recognition.continuous = !isMobile;
       recognition.interimResults = true;
       recognition.lang = sttCode || 'en-US';
       recognition.maxAlternatives = 1;
@@ -428,7 +446,7 @@ export const useSTT = (options: UseSTTOptions = {}) => {
               setIsUserSpeaking(false);
               onFinalTranscriptRef.current?.(pending);
             }
-          }, 1300);
+          }, 1200);
         }
       };
 
@@ -443,7 +461,7 @@ export const useSTT = (options: UseSTTOptions = {}) => {
         });
 
         // If not-allowed or permission denied, DISABLE auto-restart loop to prevent loop spamming
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
           console.warn(`[STT Diagnostic] Recognition error '${event.error}' encountered. Disabling auto-restart loop.`);
           shouldKeepListeningRef.current = false;
           setIsListening(false);
@@ -452,7 +470,7 @@ export const useSTT = (options: UseSTTOptions = {}) => {
           return;
         }
 
-        if (event.error === 'no-speech' || event.error === 'aborted') {
+        if (event.error === 'no-speech' || event.error === 'aborted' || event.error === 'audio-capture') {
           return;
         }
       };
@@ -479,12 +497,13 @@ export const useSTT = (options: UseSTTOptions = {}) => {
         setInterimTranscript('');
 
         if (shouldKeepListeningRef.current && !isKaiSpeakingRef.current) {
-          console.log('[STT Diagnostic] onend scheduling auto-restart in 250ms');
+          const restartDelay = isMobileDevice() ? 120 : 250;
+          console.log(`[STT Diagnostic] onend scheduling auto-restart in ${restartDelay}ms`);
           setTimeout(() => {
             if (shouldKeepListeningRef.current && !isKaiSpeakingRef.current && !isRecognitionActiveRef.current) {
               safeStartRecognition('onend-auto-restart');
             }
-          }, 250);
+          }, restartDelay);
         } else if (!shouldKeepListeningRef.current) {
           setIsListening(false);
           isListeningRef.current = false;

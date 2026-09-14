@@ -89,7 +89,7 @@ export const dataService = {
   },
 
   async getActivePatientId(): Promise<string | null> {
-    return localStorage.getItem(ACTIVE_PATIENT_KEY) || 'CGN-DEMO1';
+    return localStorage.getItem(ACTIVE_PATIENT_KEY) || null;
   },
 
   async createProfile(name: string, email: string, customData?: Partial<PatientData>): Promise<{ id: string; data: PatientData }> {

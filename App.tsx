@@ -82,30 +82,9 @@ export const App: React.FC = () => {
     patientDataRef.current = patientData;
   }, [patientData]);
 
-  // Load initial active patient profile on mount
+  // Load initial active patient profile on mount (always start at Login/Onboarding for demos)
   useEffect(() => {
-    const loadProfile = async () => {
-      setIsLoading(true);
-      const activeId = await dataService.getActivePatientId();
-      if (activeId) {
-        const data = await dataService.getPatientData(activeId);
-        if (data) {
-          setPatientData(data);
-          // Initial gentle greeting
-          setHistory([
-            {
-              id: 'init-1',
-              speaker: 'kai',
-              text: `(tone: warm) Hello ${data.profile.name}. (pause) I am Kai, your gentle companion. Tap the orb or say anything to talk with me.`,
-              timestamp: Date.now(),
-              isFinal: true,
-            },
-          ]);
-        }
-      }
-      setIsLoading(false);
-    };
-    loadProfile();
+    setIsLoading(false);
   }, []);
 
   // Voice output (TTS) with dynamic adaptive speech rate & target language
@@ -278,10 +257,12 @@ export const App: React.FC = () => {
     };
 
     window.addEventListener('pointerdown', handleFirstGesture, { once: true });
+    window.addEventListener('touchstart', handleFirstGesture, { once: true });
     window.addEventListener('keydown', handleFirstGesture, { once: true });
 
     return () => {
       window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('touchstart', handleFirstGesture);
       window.removeEventListener('keydown', handleFirstGesture);
     };
   }, [patientData, isSleepMode, isListening, startListening]);
