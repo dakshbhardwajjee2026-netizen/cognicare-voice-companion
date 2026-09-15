@@ -146,17 +146,22 @@ export const App: React.FC = () => {
         // Handle tool calls from Gemini
         if (response.functionCalls && response.functionCalls.length > 0) {
           for (const call of response.functionCalls) {
-            if (call.name === 'showMemoryImage' && call.args?.memoryTitle) {
-              const targetTitle = call.args.memoryTitle.toLowerCase();
-              const foundMem = (currentPatient.memories || []).find(
-                (m) =>
-                  m.title.toLowerCase().includes(targetTitle) ||
-                  targetTitle.includes(m.title.toLowerCase())
-              );
+            if (call.name === 'showMemoryImage') {
+              const targetTitle = (call.args?.memoryTitle || '').toLowerCase().trim();
+              let foundMem: any = null;
+              if (targetTitle && currentPatient.memories) {
+                foundMem = currentPatient.memories.find(
+                  (m) =>
+                    m.title.toLowerCase().includes(targetTitle) ||
+                    targetTitle.includes(m.title.toLowerCase()) ||
+                    m.title.toLowerCase().split(/\s+/).some((w: string) => w.length > 3 && targetTitle.includes(w))
+                );
+              }
+              if (!foundMem && currentPatient.memories && currentPatient.memories.length > 0) {
+                foundMem = currentPatient.memories[0];
+              }
               if (foundMem) {
                 setActiveMemoryModal(foundMem);
-              } else if (currentPatient.memories && currentPatient.memories.length > 0) {
-                setActiveMemoryModal(currentPatient.memories[0]);
               }
             } else if (call.name === 'playVoiceNote') {
               const unplayed = (currentPatient.voiceNotes || []).find((n) => !n.played) || (currentPatient.voiceNotes || [])[0];
