@@ -354,13 +354,13 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isSleepMode, sleepUntilTimestamp, handleWakeUpKai]);
 
-  // Proactive quiet check-in timer (75 seconds of inactivity check)
+  // Proactive quiet check-in timer (60 seconds of inactivity check)
   useEffect(() => {
     if (!patientData || isSleepMode) return;
 
     const checkInterval = setInterval(() => {
       const timeSinceLastActivity = Date.now() - lastUserActivityRef.current;
-      const INACTIVITY_THRESHOLD = 75 * 1000;
+      const INACTIVITY_THRESHOLD = 60 * 1000;
 
       if (timeSinceLastActivity >= INACTIVITY_THRESHOLD && !isSpeaking && !isKaiThinking) {
         lastUserActivityRef.current = Date.now();
@@ -371,7 +371,7 @@ export const App: React.FC = () => {
         if (memories.length > 0) {
           const randomMem = memories[Math.floor(Math.random() * memories.length)];
           setActiveMemoryModal(randomMem);
-          checkInText = `(tone: warm) ${patientName}, I was just looking at this lovely memory: ${randomMem.title}. (pause) ${randomMem.descriptionForKai}. How are you feeling right now?`;
+          checkInText = `(tone: warm) ${patientName}, I wanted to share this lovely memory with you: ${randomMem.title}. (pause) ${randomMem.descriptionForKai}. How are you feeling right now?`;
         }
 
         setHistory((prev) => [
@@ -386,7 +386,7 @@ export const App: React.FC = () => {
         ]);
         speak(checkInText);
       }
-    }, 15000); // Check every 15 seconds
+    }, 10000); // Check every 10 seconds
 
     return () => clearInterval(checkInterval);
   }, [patientData, isSleepMode, isSpeaking, isKaiThinking, speak]);
