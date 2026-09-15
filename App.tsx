@@ -96,6 +96,22 @@ export const App: React.FC = () => {
   const [sleepUntilTimestamp, setSleepUntilTimestamp] = useState<number | null>(null);
   const [sleepTimeRemaining, setSleepTimeRemaining] = useState<number>(0);
   const lastUserActivityRef = useRef<number>(Date.now());
+  const memoryRecallIndexRef = useRef<number>(0);
+
+  // Intelligent User Activity Tracker (resets timer on clicks, touches, keyboard, and scroll)
+  useEffect(() => {
+    const handleInteraction = () => {
+      lastUserActivityRef.current = Date.now();
+    };
+    window.addEventListener('pointerdown', handleInteraction, { passive: true });
+    window.addEventListener('touchstart', handleInteraction, { passive: true });
+    window.addEventListener('keydown', handleInteraction, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', handleInteraction);
+      window.removeEventListener('touchstart', handleInteraction);
+      window.removeEventListener('keydown', handleInteraction);
+    };
+  }, []);
 
   // Handle user speech prompt
   const handleUserMessage = useCallback(
@@ -354,30 +370,61 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isSleepMode, sleepUntilTimestamp, handleWakeUpKai]);
 
-  // Proactive quiet check-in timer (60 seconds of inactivity check)
+  // Helper to generate 1-line gist + engaging CST memory recall question
+  const generateMemoryRecallPrompt = (patientName: string, mem: any, langCode = 'en') => {
+    const title = (mem.title || '').trim();
+    const titleLower = title.toLowerCase();
+
+    if (langCode === 'hi') {
+      if (titleLower.includes('birthday') || titleLower.includes('janamdin')) {
+        return `(tone: warm) ${patientName}, मैं आपकी इस प्यारी तस्वीर को देख रही थी: ${title}। (pause) क्या आपको याद है कि उस दिन आपके साथ खुशियाँ मनाने कौन आया था?`;
+      }
+      if (titleLower.includes('wedding') || titleLower.includes('anniversary') || titleLower.includes('shadi')) {
+        return `(tone: warm) ${patientName}, देखिए यह कितनी सुंदर याद है: ${title}। (pause) क्या आपको याद है यह कितना खास और खुशियों भरा दिन था?`;
+      }
+      return `(tone: warm) ${patientName}, मैं आपकी यह खूबसूरत याद देख रही थी: ${title}। (pause) क्या यह तस्वीर आपके मन में सुखद यादें लाती है?`;
+    }
+
+    if (titleLower.includes('birthday')) {
+      return `(tone: warm) ${patientName}, I was just looking at this happy photo from your ${title}. (pause) Do you remember who helped you celebrate and blow out the candles?`;
+    }
+    if (titleLower.includes('wedding') || titleLower.includes('anniversary')) {
+      return `(tone: warm) ${patientName}, look at this wonderful photograph from ${title}. (pause) Do you remember the beautiful moments and music from that special day?`;
+    }
+    if (titleLower.includes('garden') || titleLower.includes('spring')) {
+      return `(tone: warm) ${patientName}, here is a peaceful photo of ${title}. (pause) Do you remember the flowers you loved to tend in the morning?`;
+    }
+    if (titleLower.includes('buddy') || titleLower.includes('dog') || titleLower.includes('pet')) {
+      return `(tone: warm) ${patientName}, here is a delightful photo with ${title}. (pause) Do you remember how much joy Buddy brought to your walks?`;
+    }
+    return `(tone: warm) ${patientName}, I was just admiring this cherished memory: ${title}. (pause) ${mem.descriptionForKai || ''} Does this bring back happy thoughts for you?`;
+  };
+
+  // Intelligent Proactive Inactivity Monitor (90 seconds of true idle time)
   useEffect(() => {
     if (!patientData || isSleepMode) return;
 
     const checkInterval = setInterval(() => {
       const timeSinceLastActivity = Date.now() - lastUserActivityRef.current;
-      const INACTIVITY_THRESHOLD = 60 * 1000;
+      const INACTIVITY_THRESHOLD = 90 * 1000; // 90 seconds of genuine quiet/inactivity
 
-      if (timeSinceLastActivity >= INACTIVITY_THRESHOLD && !isSpeaking && !isKaiThinking) {
+      if (timeSinceLastActivity >= INACTIVITY_THRESHOLD && !isSpeaking && !isKaiThinking && !isUserSpeaking) {
         lastUserActivityRef.current = Date.now();
         const patientName = patientDataRef.current?.profile?.name || 'friend';
         const memories = patientDataRef.current?.memories || [];
 
         let checkInText = `(tone: gentle) Hello ${patientName}, just checking in on you. (pause) Are you feeling comfortable and alright?`;
         if (memories.length > 0) {
-          const randomMem = memories[Math.floor(Math.random() * memories.length)];
-          setActiveMemoryModal(randomMem);
-          checkInText = `(tone: warm) ${patientName}, I wanted to share this lovely memory with you: ${randomMem.title}. (pause) ${randomMem.descriptionForKai}. How are you feeling right now?`;
+          const mem = memories[memoryRecallIndexRef.current % memories.length];
+          memoryRecallIndexRef.current += 1;
+          setActiveMemoryModal(mem);
+          checkInText = generateMemoryRecallPrompt(patientName, mem, currentLanguageRef.current);
         }
 
         setHistory((prev) => [
           ...prev,
           {
-            id: `kai-checkin-${Date.now()}`,
+            id: `kai-recall-${Date.now()}`,
             speaker: 'kai',
             text: checkInText,
             timestamp: Date.now(),
@@ -389,7 +436,7 @@ export const App: React.FC = () => {
     }, 10000); // Check every 10 seconds
 
     return () => clearInterval(checkInterval);
-  }, [patientData, isSleepMode, isSpeaking, isKaiThinking, speak]);
+  }, [patientData, isSleepMode, isSpeaking, isKaiThinking, isUserSpeaking, speak]);
 
   // Geolocation & Safety Zone
   const locationState = useGeolocation(patientData?.settings);
