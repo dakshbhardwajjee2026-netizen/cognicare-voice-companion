@@ -74,3 +74,30 @@ export const reverseGeocode = async (
     };
   }
 };
+
+export const getApproximateLocationFromIP = async (): Promise<{ lat: number; lng: number } | null> => {
+  try {
+    const res = await fetch('https://ipapi.co/json/');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+        return { lat: data.latitude, lng: data.longitude };
+      }
+    }
+  } catch (e) {
+    // try secondary fallback
+    try {
+      const res2 = await fetch('https://ipwhois.app/json/');
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2 && data2.latitude && data2.longitude) {
+          return { lat: parseFloat(data2.latitude), lng: parseFloat(data2.longitude) };
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return null;
+};
+
