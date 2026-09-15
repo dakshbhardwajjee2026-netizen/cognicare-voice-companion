@@ -143,6 +143,8 @@ export const App: React.FC = () => {
         setHistory((prev) => [...prev, kaiMsg]);
         setIsKaiThinking(false);
 
+        let shouldSkipDefaultSpeak = false;
+
         // Handle tool calls from Gemini
         if (response.functionCalls && response.functionCalls.length > 0) {
           for (const call of response.functionCalls) {
@@ -171,20 +173,25 @@ export const App: React.FC = () => {
                   prev ? { ...prev, voiceNotes: prev.voiceNotes.map((n) => (n.id === unplayed.id ? { ...n, played: true } : n)) } : null
                 );
 
+                const noteMsg = (unplayed as any).message || (unplayed as any).text || `Hi ${currentPatient.profile.name}, sending you lots of love today! Remember I will be visiting you soon!`;
+                const sender = unplayed.senderName || 'your caregiver';
+                const speechText = `(tone: gentle) Message from ${sender}: (pause) "${noteMsg}"`;
+
                 const audioSrc = unplayed.audioData || (unplayed as any).audioUrl;
                 if (audioSrc && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:'))) {
                   try {
                     const audio = new Audio(audioSrc);
-                    await audio.play();
+                    audio.play().catch((e) => {
+                      console.warn('Audio element playback error, falling back to TTS:', e);
+                      speak(speechText);
+                    });
                   } catch (e) {
-                    console.warn('Audio element playback error, falling back to TTS:', e);
-                    const noteMsg = (unplayed as any).message || `Hi ${currentPatient.profile.name}, just sending you lots of love today!`;
-                    speak(`(tone: gentle) Message from ${unplayed.senderName || 'your caregiver'}: (pause) "${noteMsg}"`);
+                    speak(speechText);
                   }
                 } else {
-                  const noteMsg = (unplayed as any).message || `Hi ${currentPatient.profile.name}, just sending you lots of love today! Remember I am stopping by this afternoon at 2 PM for tea!`;
-                  speak(`(tone: gentle) Message from ${unplayed.senderName || 'your caregiver'}: (pause) "${noteMsg}"`);
+                  speak(speechText);
                 }
+                shouldSkipDefaultSpeak = true;
               }
             } else if (call.name === 'navigateToPage' && call.args?.page) {
               const targetPage = call.args.page;
@@ -195,8 +202,10 @@ export const App: React.FC = () => {
           }
         }
 
-        // Speak Kai's response with prosody
-        speak(response.text);
+        // Speak Kai's response with prosody if not playing a voice note directly
+        if (!shouldSkipDefaultSpeak) {
+          speak(response.text);
+        }
       } catch (err) {
         console.error('Error handling user message:', err);
         setIsKaiThinking(false);
@@ -345,18 +354,25 @@ export const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isSleepMode, sleepUntilTimestamp, handleWakeUpKai]);
 
-  // Proactive quiet check-in timer (15 minutes of inactivity check)
+  // Proactive quiet check-in timer (75 seconds of inactivity check)
   useEffect(() => {
     if (!patientData || isSleepMode) return;
 
     const checkInterval = setInterval(() => {
       const timeSinceLastActivity = Date.now() - lastUserActivityRef.current;
-      const FIFTEEN_MINUTES = 15 * 60 * 1000;
+      const INACTIVITY_THRESHOLD = 75 * 1000;
 
-      if (timeSinceLastActivity >= FIFTEEN_MINUTES && !isSpeaking && !isKaiThinking) {
+      if (timeSinceLastActivity >= INACTIVITY_THRESHOLD && !isSpeaking && !isKaiThinking) {
         lastUserActivityRef.current = Date.now();
         const patientName = patientDataRef.current?.profile?.name || 'friend';
-        const checkInText = `(tone: gentle) Hello ${patientName}, just checking in on you. (pause) Are you feeling comfortable and alright?`;
+        const memories = patientDataRef.current?.memories || [];
+
+        let checkInText = `(tone: gentle) Hello ${patientName}, just checking in on you. (pause) Are you feeling comfortable and alright?`;
+        if (memories.length > 0) {
+          const randomMem = memories[Math.floor(Math.random() * memories.length)];
+          setActiveMemoryModal(randomMem);
+          checkInText = `(tone: warm) ${patientName}, I was just looking at this lovely memory: ${randomMem.title}. (pause) ${randomMem.descriptionForKai}. How are you feeling right now?`;
+        }
 
         setHistory((prev) => [
           ...prev,
@@ -370,7 +386,7 @@ export const App: React.FC = () => {
         ]);
         speak(checkInText);
       }
-    }, 30000); // Check every 30 seconds
+    }, 15000); // Check every 15 seconds
 
     return () => clearInterval(checkInterval);
   }, [patientData, isSleepMode, isSpeaking, isKaiThinking, speak]);
@@ -382,9 +398,24 @@ export const App: React.FC = () => {
     locationStateRef.current = locationState;
   }, [locationState]);
 
-  // Proactive scheduled alerts
+  // Proactive scheduled alerts and memory recalling
   const { activeAlert, dismissAlert } = useProactiveSystem(patientData, {
     onTriggerAlert: (alert) => {
+      // If it's a memory recall alert, automatically pop up the memory photo
+      if (alert.type === 'memory' && alert.memory) {
+        setActiveMemoryModal(alert.memory);
+      }
+      // Add proactive alert to chat history
+      setHistory((prev) => [
+        ...prev,
+        {
+          id: `kai-proactive-${Date.now()}`,
+          speaker: 'kai',
+          text: alert.speech,
+          timestamp: Date.now(),
+          isFinal: true,
+        },
+      ]);
       // Speak proactive alert gently
       speak(alert.speech);
     },
