@@ -26,15 +26,23 @@ export const useProactiveSystem = (
       const unplayedNote = (patientData.voiceNotes || []).find((n) => !n.played);
       if (unplayedNote && !notifiedEventsRef.current.has(`note-${unplayedNote.id}`)) {
         notifiedEventsRef.current.add(`note-${unplayedNote.id}`);
-        const noteMsg = (unplayedNote as any).message || (unplayedNote as any).text || 'Sending you lots of love and looking forward to seeing you soon!';
-        const alert: AlertPayload = {
-          type: 'voiceNote',
-          text: `Voice message from ${unplayedNote.senderName || 'your caregiver'}`,
-          speech: `(tone: gentle) ${patientName}, here is a warm voice message from ${unplayedNote.senderName || 'your caregiver'}: (pause) "${noteMsg}"`,
-        };
-        setActiveAlert(alert);
-        options.onTriggerAlert?.(alert);
-        return;
+        const hasAudio = unplayedNote.audioData && typeof unplayedNote.audioData === 'string' && unplayedNote.audioData.length > 50;
+        const rawMsg = ((unplayedNote as any).message || (unplayedNote as any).text || '').trim();
+        const isGeneric = !rawMsg || /^(a\s+)?voice\s+(message|note|recording(\s+message)?)$/i.test(rawMsg);
+        
+        if (hasAudio || !isGeneric) {
+          const sender = unplayedNote.senderName || 'your caregiver';
+          const alert: AlertPayload = {
+            type: 'voiceNote',
+            text: `Voice message from ${sender}`,
+            speech: hasAudio
+              ? `(tone: gentle) ${patientName}, you have a new voice message from ${sender}.`
+              : `(tone: gentle) ${patientName}, here is a message from ${sender}: (pause) "${rawMsg}"`,
+          };
+          setActiveAlert(alert);
+          options.onTriggerAlert?.(alert);
+          return;
+        }
       }
 
       // 2. Check for matching schedule time
