@@ -85,6 +85,7 @@ export const DEFAULT_VOICE_NOTES: VoiceNote[] = [
   {
     id: 'vn-1',
     audioData: '',
+    message: "Hi Dad, I love you so much! I'm bringing your favorite cookies and fresh tea this afternoon at 2 PM. See you very soon!",
     timestamp: Date.now() - 1000 * 60 * 45, // 45 mins ago
     played: false,
     senderName: 'Sarah (Daughter)',
