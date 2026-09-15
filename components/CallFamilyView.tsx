@@ -137,10 +137,33 @@ export const CallFamilyView: React.FC<CallFamilyViewProps> = ({
                   <button
                     onClick={() => {
                       onMarkVoiceNotePlayed(note.id);
-                      const spokenMsg = note.message || `Hi ${patientName}, just calling to let you know we love you so much and are thinking of you. Have a wonderful day!`;
-                      onSpeak(
-                        `(tone: gentle) Playing voice message from ${note.senderName || 'your caregiver'}: (pause) "${spokenMsg}"`
-                      );
+                      const rawMsg = note.message || '';
+                      const isGenericPlaceholder = !rawMsg.trim() || 
+                        /^(a\s+)?voice\s+(message|note|recording(\s+message)?)$/i.test(rawMsg.trim());
+                      const spokenMsg = !isGenericPlaceholder
+                        ? rawMsg
+                        : `Hi ${patientName}, sending you lots of love today! I am thinking of you and will be visiting you soon. Have a wonderful day!`;
+
+                      const speechText = `(tone: gentle) Playing voice message from ${note.senderName || 'your caregiver'}: (pause) "${spokenMsg}"`;
+                      const audioSrc = note.audioData;
+                      if (audioSrc && typeof audioSrc === 'string' && audioSrc.length > 100 && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:'))) {
+                        try {
+                          const audio = new Audio(audioSrc);
+                          audio.onerror = () => {
+                            onSpeak(speechText);
+                          };
+                          const playPromise = audio.play();
+                          if (playPromise !== undefined) {
+                            playPromise.catch(() => {
+                              onSpeak(speechText);
+                            });
+                          }
+                        } catch {
+                          onSpeak(speechText);
+                        }
+                      } else {
+                        onSpeak(speechText);
+                      }
                     }}
                     className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm active:scale-95 transition"
                   >
