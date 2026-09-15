@@ -34,7 +34,9 @@ import { PatientData, Memory, ScheduleEvent, VoiceNote, PatientSettings, SpeechS
 import { LanguagePicker } from './LanguagePicker';
 import { t } from '../services/i18n';
 import { LocationState, calculateDistanceMeters } from '../hooks/useGeolocation';
-import { reverseGeocode, ReverseGeocodeResult } from '../services/locationService';
+import { reverseGeocode, ReverseGeocodeResult, getApproximateLocationFromIP } from '../services/locationService';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 // Wrapper for caregiver pages
 export const CaregiverPageView: React.FC<{
@@ -573,21 +575,30 @@ export const SafeZoneManager: React.FC<{
   onChangeLanguage?: (langId: string) => void;
 }> = ({ patientData, locationState, onUpdateSettings, onBack, currentLanguage = 'en', onChangeLanguage }) => {
   const patientName = patientData.profile?.name || 'David';
-  const defaultHome = patientData.settings?.homeCoordinates || locationState?.coords || { lat: 26.1445, lng: 91.7362 };
+  const initialCoords = patientData.settings?.homeCoordinates || locationState?.coords || { lat: 28.6139, lng: 77.2090 };
   
   const [radius, setRadius] = useState<number>(patientData.settings?.safeZoneRadius || 250);
-  const [homeCoords, setHomeCoords] = useState<{ lat: number; lng: number }>(defaultHome);
-  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number }>(locationState?.coords || defaultHome);
+  const [homeCoords, setHomeCoords] = useState<{ lat: number; lng: number }>(initialCoords);
+  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number }>(locationState?.coords || initialCoords);
   const [locationDetails, setLocationDetails] = useState<ReverseGeocodeResult | null>(locationState?.locationDetails || null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [mapMode, setMapMode] = useState<'map' | 'radar'>('map');
   const [saved, setSaved] = useState<boolean>(false);
   const [showCoordInputs, setShowCoordInputs] = useState<boolean>(false);
 
-  // Sync with locationState prop
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
+  const homeMarkerRef = useRef<L.Marker | null>(null);
+  const patientMarkerRef = useRef<L.Marker | null>(null);
+
+  // Sync with locationState prop & bootstrap
   useEffect(() => {
     if (locationState?.coords) {
       setCurrentCoords(locationState.coords);
+      if (!patientData.settings?.homeCoordinates) {
+        setHomeCoords(locationState.coords);
+      }
     }
     if (locationState?.locationDetails) {
       setLocationDetails(locationState.locationDetails);
@@ -598,6 +609,20 @@ export const SafeZoneManager: React.FC<{
     }
   }, [locationState?.coords, locationState?.locationDetails]);
 
+  // If no GPS yet, trigger automatic IP geolocation bootstrap
+  useEffect(() => {
+    if (!locationState?.coords && !patientData.settings?.homeCoordinates) {
+      getApproximateLocationFromIP().then(async (ipLoc) => {
+        if (ipLoc) {
+          setCurrentCoords(ipLoc);
+          setHomeCoords(ipLoc);
+          const details = await reverseGeocode(ipLoc.lat, ipLoc.lng);
+          if (details) setLocationDetails(details);
+        }
+      });
+    }
+  }, []);
+
   const distanceFromHome = calculateDistanceMeters(
     currentCoords.lat,
     currentCoords.lng,
@@ -606,6 +631,116 @@ export const SafeZoneManager: React.FC<{
   );
   const isInsideSafeZone = distanceFromHome <= radius;
 
+  // Initialize Leaflet Map
+  useEffect(() => {
+    if (!mapContainerRef.current || mapMode !== 'map') return;
+    if (mapInstanceRef.current) return;
+
+    const centerLat = homeCoords.lat || currentCoords.lat || 28.6139;
+    const centerLng = homeCoords.lng || currentCoords.lng || 77.2090;
+
+    const map = L.map(mapContainerRef.current, {
+      center: [centerLat, centerLng],
+      zoom: 16,
+      zoomControl: true,
+    });
+
+    // 100% Free OpenStreetMap tile layer (No Google Maps, no API keys, no restrictions)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    const homeDivIcon = L.divIcon({
+      className: 'custom-leaflet-home-marker',
+      html: `
+        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px;">
+          <div style="width: 36px; height: 36px; border-radius: 9999px; background: #059669; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.35); color: white;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+          </div>
+          <div style="position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 9999px; background: #34d399; box-shadow: 0 0 8px #34d399;"></div>
+        </div>
+      `,
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    });
+
+    const patientDivIcon = L.divIcon({
+      className: 'custom-leaflet-patient-marker',
+      html: `
+        <div style="position: relative; display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;">
+          <div style="width: 34px; height: 34px; border-radius: 9999px; background: #4f46e5; border: 3px solid white; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(0,0,0,0.35); color: white;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+          </div>
+          <div style="position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; border-radius: 9999px; background: #818cf8; box-shadow: 0 0 8px #818cf8;"></div>
+        </div>
+      `,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17],
+    });
+
+    const circle = L.circle([centerLat, centerLng], {
+      radius: radius,
+      color: '#059669',
+      fillColor: '#10b981',
+      fillOpacity: 0.22,
+      weight: 2.5,
+    }).addTo(map);
+
+    const homeMarker = L.marker([centerLat, centerLng], {
+      icon: homeDivIcon,
+      draggable: true,
+      title: 'Home Base Safe Zone Center',
+    }).addTo(map);
+
+    homeMarker.on('dragend', async (e) => {
+      const pos = e.target.getLatLng();
+      setHomeCoords({ lat: pos.lat, lng: pos.lng });
+      const details = await reverseGeocode(pos.lat, pos.lng);
+      if (details) setLocationDetails(details);
+    });
+
+    const patientMarker = L.marker([currentCoords.lat, currentCoords.lng], {
+      icon: patientDivIcon,
+      title: `${patientName}'s Live GPS Position`,
+    }).addTo(map);
+
+    map.on('click', async (e) => {
+      setHomeCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
+      const details = await reverseGeocode(e.latlng.lat, e.latlng.lng);
+      if (details) setLocationDetails(details);
+    });
+
+    mapInstanceRef.current = map;
+    circleRef.current = circle;
+    homeMarkerRef.current = homeMarker;
+    patientMarkerRef.current = patientMarker;
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, [mapMode]);
+
+  // Update map layers when coordinates or radius change
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    if (circleRef.current) {
+      circleRef.current.setLatLng([homeCoords.lat, homeCoords.lng]);
+      circleRef.current.setRadius(radius);
+    }
+    if (homeMarkerRef.current) {
+      homeMarkerRef.current.setLatLng([homeCoords.lat, homeCoords.lng]);
+    }
+    if (patientMarkerRef.current) {
+      patientMarkerRef.current.setLatLng([currentCoords.lat, currentCoords.lng]);
+    }
+  }, [homeCoords.lat, homeCoords.lng, currentCoords.lat, currentCoords.lng, radius]);
+
   const handleRefreshGPS = () => {
     if (typeof window === 'undefined' || !navigator.geolocation) return;
     setIsLocating(true);
@@ -613,20 +748,43 @@ export const SafeZoneManager: React.FC<{
       async (pos) => {
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setCurrentCoords(coords);
+        if (!patientData.settings?.homeCoordinates) {
+          setHomeCoords(coords);
+        }
         const details = await reverseGeocode(coords.lat, coords.lng);
         if (details) setLocationDetails(details);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([coords.lat, coords.lng], 17, { duration: 1 });
+        }
         setIsLocating(false);
       },
       (err) => {
         console.warn('Location refresh notice:', err.message);
         setIsLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
     );
   };
 
-  const handleSetCurrentAsHome = () => {
+  const handleSetCurrentAsHome = async () => {
     setHomeCoords({ ...currentCoords });
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([currentCoords.lat, currentCoords.lng], 16, { duration: 1 });
+    }
+    const details = await reverseGeocode(currentCoords.lat, currentCoords.lng);
+    if (details) setLocationDetails(details);
+  };
+
+  const handleFlyToMyLocation = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([currentCoords.lat, currentCoords.lng], 17, { duration: 1.2 });
+    }
+  };
+
+  const handleFlyToHome = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([homeCoords.lat, homeCoords.lng], 16, { duration: 1.2 });
+    }
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -640,13 +798,7 @@ export const SafeZoneManager: React.FC<{
     setTimeout(() => setSaved(false), 2500);
   };
 
-  // Compute OpenStreetMap bounding box around home coordinates
-  const degSpan = Math.max(0.003, (radius / 111320) * 3.2);
-  const minLng = (homeCoords.lng - degSpan).toFixed(6);
-  const maxLng = (homeCoords.lng + degSpan).toFixed(6);
-  const minLat = (homeCoords.lat - degSpan * 0.7).toFixed(6);
-  const maxLat = (homeCoords.lat + degSpan * 0.7).toFixed(6);
-  const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${homeCoords.lat}%2C${homeCoords.lng}`;
+  const osmDirectUrl = `https://www.openstreetmap.org/?mlat=${currentCoords.lat}&mlon=${currentCoords.lng}#map=17/${currentCoords.lat}/${currentCoords.lng}`;
 
   return (
     <CaregiverPageView
@@ -682,21 +834,21 @@ export const SafeZoneManager: React.FC<{
             type="button"
             onClick={handleRefreshGPS}
             disabled={isLocating}
-            className="flex items-center space-x-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-2 rounded-xl border border-purple-200 transition"
+            className="flex items-center space-x-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-2 rounded-xl border border-purple-200 transition shadow-xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin' : ''}`} />
             <span>{isLocating ? 'Locating...' : 'Refresh GPS'}</span>
           </button>
         </div>
 
-        {/* 1. VISUAL GEOFENCE MAP WINDOW */}
+        {/* 1. VISUAL GEOFENCE OPENSTREETMAP WINDOW */}
         <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
           {/* Map Top Bar */}
           <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
             <div className="flex items-center space-x-2">
               <MapPin className="w-4 h-4 text-emerald-400" />
               <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                Live Geofence Radar & Map
+                OpenStreetMap Live Geofence Radar
               </span>
             </div>
 
@@ -709,7 +861,7 @@ export const SafeZoneManager: React.FC<{
                 }`}
               >
                 <MapIcon className="w-3 h-3" />
-                <span>Street Map</span>
+                <span>OpenStreetMap</span>
               </button>
               <button
                 type="button"
@@ -719,43 +871,53 @@ export const SafeZoneManager: React.FC<{
                 }`}
               >
                 <Crosshair className="w-3 h-3" />
-                <span>Radar Scan</span>
+                <span>Radar Grid</span>
               </button>
             </div>
           </div>
 
           {/* Map Body Canvas */}
-          <div className="relative w-full h-80 sm:h-96 bg-slate-950 overflow-hidden flex items-center justify-center">
+          <div className="relative w-full h-80 sm:h-96 bg-slate-100 overflow-hidden flex items-center justify-center">
             {mapMode === 'map' ? (
               <>
-                {/* Live OpenStreetMap Iframe */}
-                <iframe
-                  title="Geofence Live Map"
-                  src={osmUrl}
-                  className="w-full h-full border-0 filter contrast-[1.05]"
-                  loading="lazy"
-                />
+                {/* Leaflet OpenStreetMap Container */}
+                <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-                {/* Visual Safe Zone Circle Overlay on Map */}
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                  <div
-                    style={{
-                      width: `${Math.min(280, Math.max(90, (radius / 1000) * 260))}px`,
-                      height: `${Math.min(280, Math.max(90, (radius / 1000) * 260))}px`,
-                    }}
-                    className="rounded-full border-2 border-emerald-500/80 bg-emerald-500/20 shadow-[0_0_25px_rgba(16,185,129,0.35)] flex items-center justify-center transition-all duration-300 relative"
+                {/* Map Interactive Quick Controls */}
+                <div className="absolute top-3 right-3 flex flex-col space-y-1.5 z-[1000]">
+                  <button
+                    type="button"
+                    onClick={handleFlyToMyLocation}
+                    className="bg-white/95 backdrop-blur-md text-slate-700 hover:text-slate-900 p-2 rounded-xl shadow-md border border-slate-200 text-xs font-bold flex items-center space-x-1 hover:bg-white transition"
+                    title="Center on My GPS Location"
                   >
-                    <div className="absolute -top-3 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
-                      {radius}m Radius
-                    </div>
-                    {/* Center Home Base Marker */}
-                    <div className="relative flex items-center justify-center">
-                      <div className="w-8 h-8 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center shadow-lg text-white">
-                        <Home className="w-4 h-4" />
-                      </div>
-                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-ping"></span>
-                    </div>
-                  </div>
+                    <Locate className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>My Location</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleFlyToHome}
+                    className="bg-white/95 backdrop-blur-md text-slate-700 hover:text-slate-900 p-2 rounded-xl shadow-md border border-slate-200 text-xs font-bold flex items-center space-x-1 hover:bg-white transition"
+                    title="Center on Home Safe Zone"
+                  >
+                    <Home className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Home Base</span>
+                  </button>
+                  <a
+                    href={osmDirectUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-white/95 backdrop-blur-md text-slate-700 hover:text-slate-900 p-2 rounded-xl shadow-md border border-slate-200 text-xs font-semibold flex items-center space-x-1 hover:bg-white transition"
+                    title="Open full OpenStreetMap"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                    <span>OSM View</span>
+                  </a>
+                </div>
+
+                {/* Hint on Map */}
+                <div className="absolute bottom-2 left-2 bg-slate-900/80 backdrop-blur-md text-white text-[10px] font-medium px-2.5 py-1 rounded-lg z-[1000] shadow-sm pointer-events-none">
+                  💡 Click or drag marker anywhere on map to set Home Base
                 </div>
               </>
             ) : (
@@ -815,20 +977,6 @@ export const SafeZoneManager: React.FC<{
                 )}
               </div>
             )}
-
-            {/* Quick Floating Actions over Map */}
-            <div className="absolute top-3 right-3 flex flex-col space-y-2 z-10">
-              <a
-                href={`https://www.google.com/maps?q=${currentCoords.lat},${currentCoords.lng}`}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-white/95 backdrop-blur-md text-slate-700 hover:text-slate-900 p-2 rounded-xl shadow-md border border-slate-200 text-xs font-semibold flex items-center space-x-1"
-                title="Open in Google Maps"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Google Maps</span>
-              </a>
-            </div>
           </div>
 
           {/* 2. CURRENT LOCATION AND AREA DISPLAY (BOTTOM OF MAP WINDOW) */}
@@ -841,7 +989,7 @@ export const SafeZoneManager: React.FC<{
                 <div>
                   <div className="flex items-center space-x-2 flex-wrap">
                     <h3 className="font-extrabold text-slate-900 text-sm">
-                      {locationDetails?.neighborhood || 'Home Safe Zone'}
+                      {locationDetails?.neighborhood || 'Current Location Safe Zone'}
                     </h3>
                     {locationDetails?.city && (
                       <span className="px-2 py-0.5 rounded-md bg-stone-200 text-slate-700 text-[11px] font-semibold">
@@ -869,7 +1017,7 @@ export const SafeZoneManager: React.FC<{
             {locationDetails?.nearbyLandmarks && locationDetails.nearbyLandmarks.length > 0 && (
               <div className="pt-2 border-t border-stone-200/80">
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
-                  Surrounding Landmarks & Area Context
+                  Surrounding Landmarks & Area Context (OpenStreetMap)
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {locationDetails.nearbyLandmarks.map((lm, idx) => (
