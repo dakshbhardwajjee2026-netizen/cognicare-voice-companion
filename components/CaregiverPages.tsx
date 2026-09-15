@@ -438,7 +438,7 @@ export const RecordVoiceNoteView: React.FC<{
     const newNote: VoiceNote = {
       id: `vn-${Date.now()}`,
       audioData: recordedAudioUrl || '',
-      message: messagePrompt.trim() || 'Voice recording message',
+      message: messagePrompt.trim() || `Hi ${patientData.profile?.name || 'there'}, sending you all my love today! Thinking of you and stopping by soon!`,
       timestamp: Date.now(),
       played: false,
       senderName: sender.trim() || 'Caregiver',
