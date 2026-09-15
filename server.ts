@@ -179,18 +179,39 @@ function generateLocalFallbackResponse(
 ): { text: string; functionCalls?: any[] } {
   const lower = (prompt || '').toLowerCase().trim();
   const name = patientData?.profile?.name || 'friend';
-  const cultural = patientData?.culturalProfile || { honorificTitle: 'Kaka', ethnicBackground: 'Indian' };
+  const cultural = patientData?.culturalProfile || { honorificTitle: 'Ji', ethnicBackground: 'Indian' };
   const honorific = cultural.honorificTitle ? `${name} ${cultural.honorificTitle}` : name;
 
   const memories = patientData?.memories || [];
   const schedule = patientData?.schedule || [];
   const familyMembers = patientData?.familyMembers || [];
-  const familyNames = familyMembers.map((m: any) => m.name).join(', ') || 'Maria, Sarah, Michael, Buddy';
+  const familyNames = familyMembers.map((m: any) => m.name).join(', ') || 'Sarah, Maria, Michael';
 
   // Determine language accurately from input text or selected language
   const { langCode } = detectSpokenLanguage(prompt, language);
 
-  // 1. Where Am I Intent
+  // Helper for regex escaping
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // 1. Memory Loss, Disorientation, Confusion & Identity Grounding (CRITICAL DEMENTIA INTENT)
+  const isMemoryLossOrIdentity = /\b(cannot remember|can't remember|cant remember|don't remember|dont remember|not remember|remember anything|remember nothing|no memory|lost my memory|forget|forgot|forgotten|confused|who am i|my name|who i am|who are you|where am i|lost|help me remember|tell me about me|kuch yaad nahi|kuch bhi yaad|yaad nahi|yad nahin|bhool gaya|bhul gaya|kaun hun|kaun hu|kon hu|kon|naam kya|naam ki|kavaru)\b/i.test(lower);
+  if (isMemoryLossOrIdentity) {
+    if (langCode === 'hi') {
+      return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है और हमेशा आपके साथ है।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: reassuring) તમે ${honorific} છો। (pause) હું તમારી પ્રેમાળ સાથી કાઈ છું। તમારો પરિવાર, જેમ કે ${familyNames}, તમને ખૂબ પ્રેમ કરે છે અને તમે ઘરમાં સુરક્ષિત છો।` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: reassuring) तुम्ही ${honorific} आहात। (pause) मी तुमची सोबती काई आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते। तुम्ही घरी सुरक्षित आहात।` };
+    }
+    if (langCode === 'bn') {
+      return { text: `(tone: reassuring) আপনি হলেন ${honorific}। (pause) আমি আপনার সাথী কাই। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে। আপনি ঘরে নিরাপদ আছেন।` };
+    }
+    return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe and comfortable at home. Your loving family, including ${familyNames}, loves you deeply and is right by your side.` };
+  }
+
+  // 2. Where Am I / Location Intent
   const isWhereAmI = /\b(where am i|location|place|outside|park|kahan|kahan hun|kidhar|kuthe|kothay|yenga|ekkada)\b/i.test(lower);
   if (isWhereAmI) {
     const loc = locationInfo?.locationDetails;
@@ -203,56 +224,11 @@ function generateLocalFallbackResponse(
     if (langCode === 'gu') {
       return { text: `(tone: reassuring) ${honorific}, તમે તમારા ઘર નજીક ${placeName} માં બિલકુલ સુરક્ષિત છો। (pause) ચિંતા ના કરશો, બધું શાંત છે।` };
     }
-    if (langCode === 'mr') {
-      return { text: `(tone: reassuring) ${honorific}, तुम्ही तुमच्या घराजवळ ${placeName} मध्ये पूर्णपणे सुरक्षित आहात। (pause) काळजी करू नका।` };
-    }
-    if (langCode === 'bn') {
-      return { text: `(tone: reassuring) ${honorific}, আপনি আপনার বাড়ির কাছে ${placeName}-এ সম্পূর্ণ নিরাপদে আছেন। (pause) চিন্তা করবেন না।` };
-    }
-    if (langCode === 'as') {
-      return { text: `(tone: reassuring) ${honorific}, আপুনি আপোনাৰ ঘৰৰ ওচৰতে সুৰক্ষিতভাৱে আছোঁ। (pause) মই আপোনাৰ সংগী কাই।` };
-    }
-    if (langCode === 'ta') {
-      return { text: `(tone: reassuring) ${honorific}, நீங்கள் உங்கள் வீட்டிற்கு அருகில் பாதுகாப்பாக இருக்கிறீர்கள். (pause) நான் உங்களுடன் இருக்கிறேன்.` };
-    }
-    if (langCode === 'te') {
-      return { text: `(tone: reassuring) ${honorific}, మీరు మీ ఇంటి సమీపంలో పూర్తిగా సురక్షితంగా ఉన్నారు. (pause) ప్రశాంతంగా ఉండండి.` };
-    }
     return { text: `(tone: reassuring) You are right near ${placeName}, ${honorific}. (pause) Nearby you have ${landmarks}. You are completely safe and peaceful.` };
   }
 
-  // 2. Who Am I / Identity Intent
-  const isWhoAmI = /\b(who am i|my name|who are you|confused|forget|kaun|kaun hun|kon|yaad nahi|yad nahin|kuch yaad nahi|naam ki|kavaru)\b/i.test(lower);
-  if (isWhoAmI) {
-    if (langCode === 'hi') {
-      return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है।` };
-    }
-    if (langCode === 'gu') {
-      return { text: `(tone: reassuring) તમે ${honorific} છો। (pause) હું તમારી પ્રેમાળ સાથી કાઈ છું। તમારો પરિવાર, જેમ કે ${familyNames}, તમને ખૂબ પ્રેમ કરે છે।` };
-    }
-    if (langCode === 'mr') {
-      return { text: `(tone: reassuring) तुम्ही ${honorific} आहात। (pause) मी तुमची सोबती काई आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते।` };
-    }
-    if (langCode === 'bn') {
-      return { text: `(tone: reassuring) আপনি হলেন ${honorific}। (pause) আমি আপনার সাথী কাই। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে।` };
-    }
-    if (langCode === 'as') {
-      return { text: `(tone: reassuring) আপুনি হ'ল ${honorific}। (pause) মই আপোনাৰ সংগী কাই। আপোনাৰ পৰিয়ালে আপোনাক বহুত ভাল পায়।` };
-    }
-    if (langCode === 'ta') {
-      return { text: `(tone: reassuring) நீங்கள் ${honorific}. (pause) நான் உங்கள் குரல் துணை காய். உங்கள் குடும்பத்தினர் ${familyNames} உங்களை மிகவும் நேசிக்கிறார்கள்.` };
-    }
-    if (langCode === 'te') {
-      return { text: `(tone: reassuring) మీరు ${honorific}. (pause) నేను మీ తోడు కాయ్. మీ కుటుంబం ${familyNames} మిమ్మల్ని ఎంతో ప్రేమిస్తోంది.` };
-    }
-    return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe at home. Your family, including ${familyNames}, loves you very much.` };
-  }
-
-  // Helper for regex escaping
-  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
   // 3. JOKES & HUMOR (Out-of-Context Open Domain)
-  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu)\b/i.test(lower);
+  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu|make me laugh)\b/i.test(lower);
   if (isJoke) {
     if (langCode === 'hi') {
       return { text: `(tone: warm) डॉक्टर ने पूछा: कैसी तबीयत है? (pause) मरीज बोला: पहले से ज्यादा लोग देखने आ रहे हैं! (pause) उम्मीद है आपके चेहरे पर मुस्कान आई, ${honorific}।` };
@@ -260,17 +236,11 @@ function generateLocalFallbackResponse(
     if (langCode === 'gu') {
       return { text: `(tone: warm) પત્ની: તમે મને ક્યારેય બહાર નથી લઈ જતા! (pause) પતિ: ચાલ આજે ઘરની બહાર ઊભા રહીએ! (pause) સ્મિત કરતા રહો, ${honorific}!` };
     }
-    if (langCode === 'mr') {
-      return { text: `(tone: warm) शिक्षक: सांगा मुलांनो, अभ्यास कधी करावा? (pause) बंडू: जेव्हा आई घरी नसते! (pause) हसत राहा, ${honorific}!` };
-    }
-    if (langCode === 'bn') {
-      return { text: `(tone: warm) ডাক্তার বললেন: কেমন আছেন? (pause) রোগী বলল: আগের চেয়ে অনেক বেশি মিষ্টি খাচ্ছি! (pause) ভালো থাকুন ও হাসিখুশি থাকুন, ${honorific}।` };
-    }
     return { text: `(tone: warm) Why don't flowers tell secrets? (pause) Because they have too many petals! (pause) I hope that brought a sweet smile to you, ${honorific}.` };
   }
 
   // 4. SONGS & LULLABIES (Out-of-Context Open Domain)
-  const isSong = /\b(sing|song|songs|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao)\b/i.test(lower);
+  const isSong = /\b(sing|song|songs|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao|sunao)\b/i.test(lower);
   if (isSong) {
     if (langCode === 'hi') {
       return { text: `(tone: warm) "फूल खिले हैं बगिया में, खुशबू बहती हवाओं में। मन में रहे सदा आनंद, शांति बरसे इन राहों में।" (pause) यह प्यारा सा गीत खास आपके लिए, ${honorific}।` };
@@ -278,14 +248,11 @@ function generateLocalFallbackResponse(
     if (langCode === 'gu') {
       return { text: `(tone: warm) "મીઠી મધુર પવનની લહેર, સુખ શાંતિ રહે સદા ઘેર। ફૂલો મહેકે આંગણમાં, સ્નેહ ભરેલો દિલમાં।" (pause) આ શાંત ગીત તમારા માટે છે, ${honorific}।` };
     }
-    if (langCode === 'mr') {
-      return { text: `(tone: warm) "वारा गातो शांत गाणी, हसते सुंदर ही निसर्गाची वाणी। मन ठेवा सदासर्वदा आनंदी।" (pause) हे गोड गाणे खास तुमच्यासाठी, ${honorific}।` };
-    }
     return { text: `(tone: warm) "Gentle breeze and morning sun, peace and joy for everyone. Softly dancing on the trees, rest your heart in gentle peace." (pause) A soothing melody for you, ${honorific}.` };
   }
 
   // 5. Photos & Memories Intent (Smart Keyword & Title Matching)
-  const isPhoto = /\b(photo|picture|photograph|memory|memories|tasveer|yaad|chhavi|chitram|padam|dikhao|wedding|shadi|vivah|lagan)\b/i.test(lower) || (lower.startsWith('show') && memories.length > 0);
+  const isPhoto = /\b(photo|picture|photograph|image|pic|memory|memories|tasveer|yaad|chhavi|chitram|padam|dikhao|wedding|marriage|shadi|vivah|lagan|birthday|anniversary|picnic|garden|buddy|bike|summer|reminisce)\b/i.test(lower) || (lower.startsWith('show') && memories.length > 0);
   if (isPhoto && memories.length > 0) {
     let matchedMem = memories.find((m: any) => {
       const titleLower = (m.title || '').toLowerCase();
@@ -295,11 +262,15 @@ function generateLocalFallbackResponse(
       return (
         lower.includes(titleLower) ||
         words.some((w: string) => lower.includes(w)) ||
-        (lower.includes('wedding') && (titleLower.includes('wedding') || titleLower.includes('marriage'))) ||
-        (lower.includes('shadi') && (titleLower.includes('wedding') || titleLower.includes('marriage'))) ||
+        (lower.includes('wedding') && (titleLower.includes('wedding') || titleLower.includes('marriage') || titleLower.includes('anniversary'))) ||
+        (lower.includes('anniversary') && (titleLower.includes('anniversary') || titleLower.includes('wedding'))) ||
+        (lower.includes('birthday') && titleLower.includes('birthday')) ||
+        (lower.includes('picnic') && (titleLower.includes('picnic') || titleLower.includes('summer'))) ||
+        (lower.includes('shadi') && (titleLower.includes('wedding') || titleLower.includes('anniversary'))) ||
         (lower.includes('buddy') && (titleLower.includes('buddy') || descLower.includes('buddy'))) ||
         (lower.includes('garden') && (titleLower.includes('garden') || descLower.includes('garden'))) ||
         (lower.includes('dog') && (titleLower.includes('buddy') || descLower.includes('dog'))) ||
+        (lower.includes('bike') && (titleLower.includes('bike') || descLower.includes('bicycle'))) ||
         (lower.includes('lake') && titleLower.includes('lake')) ||
         (lower.includes('trip') && (titleLower.includes('trip') || catLower.includes('vacation')))
       );
@@ -333,20 +304,31 @@ function generateLocalFallbackResponse(
     };
   }
 
-  // 6. Family Members & Loved Ones Inquiry Intent (Exact word-boundary matched)
+  // 6. Family Members & Loved Ones Inquiry Intent (Exact Name & Relationship matched)
   let matchedFamilyMember: any = null;
+  // First pass: exact full name or first name match
   for (const m of familyMembers) {
     const memName = (m.name || '').toLowerCase().trim();
-    const memRel = (m.relationship || '').toLowerCase().trim();
-    const nameParts = memName.split(/\s+/).filter((p: string) => p.length > 2);
-
-    const relRegex = memRel ? new RegExp(`\\b${escapeRegExp(memRel)}\\b`, 'i') : null;
-    const nameRegex = memName ? new RegExp(`\\b${escapeRegExp(memName)}\\b`, 'i') : null;
-    const partMatch = nameParts.some((part: string) => new RegExp(`\\b${escapeRegExp(part)}\\b`, 'i').test(lower));
-
-    if ((nameRegex && nameRegex.test(lower)) || (relRegex && relRegex.test(lower)) || partMatch) {
+    const firstName = memName.split(/\s+/)[0];
+    if (
+      (memName && lower.includes(memName)) ||
+      (firstName && firstName.length > 2 && new RegExp(`\\b${escapeRegExp(firstName)}\\b`, 'i').test(lower))
+    ) {
       matchedFamilyMember = m;
       break;
+    }
+  }
+
+  // Second pass: relationship match if no name matched
+  if (!matchedFamilyMember) {
+    for (const m of familyMembers) {
+      const memRel = (m.relationship || '').toLowerCase().trim();
+      const relWords = memRel.split(/[\s/]+/).filter((p: string) => p.length > 2);
+      const relRegex = relWords.map((rw: string) => new RegExp(`\\b${escapeRegExp(rw)}\\b`, 'i'));
+      if (relRegex.some((rx: RegExp) => rx.test(lower))) {
+        matchedFamilyMember = m;
+        break;
+      }
     }
   }
 
@@ -379,8 +361,8 @@ function generateLocalFallbackResponse(
     return { text: `(tone: warm) In your loving family, you have ${membersSummary}. (pause) They all cherish you deeply and are always by your side.` };
   }
 
-  // 5. Caregiver Voice Note Intent
-  const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message)\b/i.test(lower);
+  // 7. Caregiver Voice Note Intent
+  const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message|play voice|listen to message|play message)\b/i.test(lower);
   if (isVoiceNote) {
     if (langCode === 'hi') {
       return {
@@ -400,14 +382,14 @@ function generateLocalFallbackResponse(
     };
   }
 
-  // 6. Schedule & Tasks Intent (Smart Activity Matching)
-  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time|lunch|breakfast|dinner|khana|doctor|walk|afternoon|morning|evening|chai|tea)\b/i.test(lower);
+  // 8. Schedule & Tasks Intent (Smart Activity Matching)
+  const isSchedule = /\b(schedule|task|routine|medicine|medication|pill|pills|dawa|dawai|today|aaj|aaje|time|lunch|breakfast|dinner|khana|doctor|walk|afternoon|morning|evening|chai|tea|what next|what to do|kya karna hai)\b/i.test(lower);
   if (isSchedule && schedule.length > 0) {
     let matchedTask = schedule.find((s: any) => {
       const taskLower = (s.task || '').toLowerCase();
       const instLower = (s.instructions || '').toLowerCase();
       return (
-        (lower.includes('medicine') || lower.includes('dawa') || lower.includes('pill')) &&
+        (lower.includes('medicine') || lower.includes('dawa') || lower.includes('pill') || lower.includes('medication')) &&
         (taskLower.includes('med') || taskLower.includes('pill') || instLower.includes('med') || instLower.includes('pill') || instLower.includes('water'))
       ) || (
         (lower.includes('tea') || lower.includes('chai')) &&
@@ -443,10 +425,8 @@ function generateLocalFallbackResponse(
     };
   }
 
-
-
-  // 9. HALLUCINATIONS, NIGHT FEARS & CONFUSION (Clinical Grounding)
-  const isHallucinationOrFear = /\b(scared|darr|dar|ghost|bhoot|someone outside|shadow|strange noise|hearing voices|koi hai|bina koi|dar lag raha|bhiti|bhay|fear|dark|andhera|thief|chor)\b/i.test(lower);
+  // 9. HALLUCINATIONS, NIGHT FEARS & LONELINESS (Clinical Grounding)
+  const isHallucinationOrFear = /\b(scared|darr|dar|ghost|bhoot|someone outside|shadow|strange noise|hearing voices|koi hai|bina koi|dar lag raha|bhiti|bhay|fear|dark|andhera|thief|chor|lonely|alone|akela|miss|sad|udaas|crying|rona|ekla|mon kharap|where is everyone|want to go home|ghar jana|help me)\b/i.test(lower);
   if (isHallucinationOrFear) {
     if (langCode === 'hi') {
       return { text: `(tone: reassuring) मैं आपकी बात समझ रही हूँ, ${honorific}। (pause) आप अपने घर में बिल्कुल सुरक्षित हैं। सब कुछ शांत है और मैं आपके पास हूँ। कोई डर की बात नहीं है।` };
@@ -472,42 +452,21 @@ function generateLocalFallbackResponse(
     return { text: `(tone: warm) Once on a bright golden morning, a tiny robin rested on the garden rose bush, singing a peaceful song. (pause) The gentle morning sun warmed the whole porch with comfort.` };
   }
 
-  // 11. LONELINESS & EMOTIONAL REASSURANCE
-  const isLoneliness = /\b(lonely|alone|akela|miss|sad|udaas|crying|rona|ekla|mon kharap)\b/i.test(lower);
-  if (isLoneliness) {
-    if (langCode === 'hi') {
-      return { text: `(tone: reassuring) आप अकेले नहीं हैं, ${honorific}। (pause) आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है। मैं भी हर पल आपकी साथी हूँ।` };
-    }
-    if (langCode === 'gu') {
-      return { text: `(tone: reassuring) તમે એકલા નથી ${honorific}। (pause) તમારો પરિવાર જેમ કે ${familyNames} તમને ખૂબ પ્રેમ કરે છે। હું પણ તમારી સાથે છું।` };
-    }
-    return { text: `(tone: reassuring) You are never alone, ${honorific}. (pause) Your loving family, including ${familyNames}, cherishes you, and I am right here keeping you company.` };
-  }
-
-  // 12. GENERAL CONVERSATION & CURIOSITY (Varied Natural Responses)
+  // 11. GENERAL CONVERSATION, GREETINGS & COMFORT
   if (langCode === 'hi') {
-    return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी बात सुन रही हूँ। आप बहुत अच्छे इंसान हैं और सब कुछ सुखद है।` };
+    return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी साथी काई हमेशा आपके साथ हूँ। आपका परिवार ${familyNames} आपसे बहुत प्यार करता है। आप मुझसे यादों, समय या किसी भी बात के बारे में पूछ सकते हैं।` };
   }
   if (langCode === 'gu') {
-    return { text: `(tone: warm) નમસ્તે ${honorific}। (pause) હું તમારી સાથે જ છું। આજનો દિવસ ખૂબ શાંત અને સુંદર છે।` };
+    return { text: `(tone: warm) નમસ્તે ${honorific}। (pause) હું તમારી સાથે જ છું। તમારો પરિવાર ${familyNames} તમને ખૂબ પ્રેમ કરે છે। આજનો દિવસ ખૂબ શાંત અને સુંદર છે।` };
   }
   if (langCode === 'mr') {
-    return { text: `(tone: warm) नमस्कार ${honorific}। (pause) मी तुमच्या सोबत आहे। सर्व काही छान आणि शांत आहे।` };
+    return { text: `(tone: warm) नमस्कार ${honorific}। (pause) मी तुमच्या सोबत आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते। सर्व काही छान आणि शांत आहे।` };
   }
   if (langCode === 'bn') {
-    return { text: `(tone: warm) নমস্কার ${honorific}। (pause) আমি আপনার সাথে আছি। আজকের দিনটি খুব সুন্দর ও শান্ত।` };
-  }
-  if (langCode === 'as') {
-    return { text: `(tone: warm) নমস্কাৰ ${honorific}। (pause) মই আপোনাৰ সংগী কাই। সকলো শান্ত আৰু সুৰক্ষিত।` };
-  }
-  if (langCode === 'ta') {
-    return { text: `(tone: warm) வணக்கம் ${honorific}. (pause) நான் உங்களுடன் இருக்கிறேன். எல்லாம் நன்றாக உள்ளது.` };
-  }
-  if (langCode === 'te') {
-    return { text: `(tone: warm) నమస్కారం ${honorific}. (pause) నేను మీ తోడు కాయ్. అంతా ప్రశాంతంగా ఉంది.` };
+    return { text: `(tone: warm) নমস্কার ${honorific}। (pause) আমি আপনার সাথে আছি। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে।` };
   }
 
-  return { text: `(tone: warm) Hello ${honorific}. (pause) I am right here listening to you. Everything is calm, safe, and pleasant.` };
+  return { text: `(tone: warm) Hello ${honorific}. (pause) I am right here with you. Your loving family, including ${familyNames}, cherishes you. You can ask me about your schedule, memories, family, or anything you wish!` };
 }
 
 // API Health
