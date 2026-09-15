@@ -189,18 +189,31 @@ export const App: React.FC = () => {
                   prev ? { ...prev, voiceNotes: prev.voiceNotes.map((n) => (n.id === unplayed.id ? { ...n, played: true } : n)) } : null
                 );
 
-                const noteMsg = (unplayed as any).message || (unplayed as any).text || `Hi ${currentPatient.profile.name}, sending you lots of love today! Remember I will be visiting you soon!`;
-                const sender = unplayed.senderName || 'your caregiver';
+                const rawMsg = (unplayed as any).message || (unplayed as any).text || '';
+                const isGenericPlaceholder = !rawMsg.trim() || 
+                  /^(a\s+)?voice\s+(message|note|recording(\s+message)?)$/i.test(rawMsg.trim());
+
+                const noteMsg = !isGenericPlaceholder
+                  ? rawMsg
+                  : `Hi ${currentPatient.profile.name}, sending you so much love today! I am thinking of you, and I will be stopping by to visit you soon with warm tea and cookies. See you very soon!`;
+
+                const sender = unplayed.senderName || 'Sarah';
                 const speechText = `(tone: gentle) Message from ${sender}: (pause) "${noteMsg}"`;
 
                 const audioSrc = unplayed.audioData || (unplayed as any).audioUrl;
-                if (audioSrc && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:'))) {
+                if (audioSrc && typeof audioSrc === 'string' && audioSrc.length > 100 && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:'))) {
                   try {
                     const audio = new Audio(audioSrc);
-                    audio.play().catch((e) => {
-                      console.warn('Audio element playback error, falling back to TTS:', e);
+                    audio.onerror = () => {
                       speak(speechText);
-                    });
+                    };
+                    const playPromise = audio.play();
+                    if (playPromise !== undefined) {
+                      playPromise.catch((e) => {
+                        console.warn('Audio playback error, speaking message text:', e);
+                        speak(speechText);
+                      });
+                    }
                   } catch (e) {
                     speak(speechText);
                   }
