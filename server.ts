@@ -390,6 +390,17 @@ function generateLocalFallbackResponse(
   // 7. Caregiver Voice Note Intent
   const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message|play voice|listen to message|play message)\b/i.test(lower);
   if (isVoiceNote) {
+    const hasVoiceNotes = (patientData.voiceNotes || []).length > 0;
+    if (!hasVoiceNotes) {
+      if (langCode === 'hi') {
+        return { text: `(tone: gentle) आपके पास अभी कोई नया वॉयस मैसेज नहीं है, ${honorific}। जब भी परिवार से कोई नया संदेश आएगा, तो मैं आपको तुरंत सुनाऊंगी।` };
+      }
+      if (langCode === 'gu') {
+        return { text: `(tone: gentle) તમારી પાસે અત્યારે કોઈ નવો વોઇસ મેસેજ નથી, ${honorific}। જ્યારે પરિવાર કોઈ સંદેશ મોકલશે, ત્યારે હું તમને સંભળાવીશ।` };
+      }
+      return { text: `(tone: gentle) You have no new voice messages right now, ${honorific}. Whenever your family sends a message, I will be happy to play it for you.` };
+    }
+
     if (langCode === 'hi') {
       return {
         text: `(tone: gentle) आपके परिवार का वॉयस मैसेज बजाया जा रहा है, ${honorific}। (pause) कृपया ध्यान से सुनें।`,
