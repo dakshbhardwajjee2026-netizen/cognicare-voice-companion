@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Clock, Mic, X, Volume2 } from 'lucide-react';
+import { AlertTriangle, Clock, Mic, X, Volume2, Heart } from 'lucide-react';
 import { AlertPayload } from '../types';
 
 interface AlertBannerProps {
@@ -31,6 +31,11 @@ export const AlertBanner: React.FC<AlertBannerProps> = ({
         return {
           bg: 'bg-emerald-50 border-emerald-200 text-emerald-900',
           icon: <Mic className="w-6 h-6 text-emerald-600 flex-shrink-0" />,
+        };
+      case 'memory':
+        return {
+          bg: 'bg-rose-50 border-rose-200 text-rose-900',
+          icon: <Heart className="w-6 h-6 text-rose-600 flex-shrink-0 fill-rose-100" />,
         };
       default:
         return {
