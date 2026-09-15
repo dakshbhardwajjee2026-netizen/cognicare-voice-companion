@@ -106,7 +106,8 @@ export interface ChatMessage {
 export interface AlertPayload {
   text: string;
   speech: string;
-  type: 'location' | 'schedule' | 'voiceNote';
+  type: 'location' | 'schedule' | 'voiceNote' | 'memory';
+  memory?: Memory;
 }
 
 export type CompanionStatus = 'idle' | 'listening' | 'user_speaking' | 'thinking' | 'speaking' | 'error';
