@@ -175,7 +175,8 @@ function generateLocalFallbackResponse(
   prompt: string,
   patientData: any,
   language = 'en',
-  locationInfo?: any
+  locationInfo?: any,
+  history?: any[]
 ): { text: string; functionCalls?: any[] } {
   const lower = (prompt || '').toLowerCase().trim();
   const name = patientData?.profile?.name || 'friend';
@@ -192,6 +193,30 @@ function generateLocalFallbackResponse(
 
   // Helper for regex escaping
   const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Check if previous message in history was a memory recall prompt/question from Kai
+  let wasMemoryRecallContext = false;
+  if (Array.isArray(history) && history.length > 0) {
+    const lastKaiMsg = [...history].reverse().find((h: any) => h.speaker === 'kai' || h.role === 'model');
+    if (lastKaiMsg) {
+      const msgText = (lastKaiMsg.text || '').toLowerCase();
+      if (
+        msgText.includes('remember') ||
+        msgText.includes('photo') ||
+        msgText.includes('photograph') ||
+        msgText.includes('memory') ||
+        msgText.includes('तस्वीर') ||
+        msgText.includes('याद') ||
+        msgText.includes('looking at') ||
+        msgText.includes('admiring') ||
+        msgText.includes('celebrate') ||
+        msgText.includes('candles') ||
+        memories.some((m: any) => msgText.includes((m.title || '').toLowerCase()))
+      ) {
+        wasMemoryRecallContext = true;
+      }
+    }
+  }
 
   // 1. Memory Loss, Disorientation, Confusion & Identity Grounding (CRITICAL DEMENTIA INTENT)
   const isMemoryLossOrIdentity = /\b(cannot remember|can't remember|cant remember|don't remember|dont remember|not remember|remember anything|remember nothing|no memory|lost my memory|forget|forgot|forgotten|confused|who am i|my name|who i am|who are you|where am i|lost|help me remember|tell me about me|kuch yaad nahi|kuch bhi yaad|yaad nahi|yad nahin|bhool gaya|bhul gaya|kaun hun|kaun hu|kon hu|kon|naam kya|naam ki|kavaru)\b/i.test(lower);
@@ -229,7 +254,7 @@ function generateLocalFallbackResponse(
   }
 
   // 3. JOKES & HUMOR (Out-of-Context Open Domain)
-  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu|make me laugh)\b/i.test(lower);
+  const isJoke = !wasMemoryRecallContext && /\b(joke|chutkula|chutkule|hasao|funny joke|laugh|hasi|mazak|latifa|hasvaanu|make me laugh|tell me a joke)\b/i.test(lower);
   if (isJoke) {
     if (langCode === 'hi') {
       return { text: `(tone: warm) डॉक्टर ने पूछा: कैसी तबीयत है? (pause) मरीज बोला: पहले से ज्यादा लोग देखने आ रहे हैं! (pause) उम्मीद है आपके चेहरे पर मुस्कान आई, ${honorific}।` };
@@ -241,7 +266,7 @@ function generateLocalFallbackResponse(
   }
 
   // 4. SONGS & LULLABIES (Out-of-Context Open Domain)
-  const isSong = /\b(sing|song|songs|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao|sunao)\b/i.test(lower);
+  const isSong = !wasMemoryRecallContext && /\b(sing a song|sing me a song|sing for me|sing to me|gaana sunao|geet sunao|lori sunao|lullaby|kavita sunao)\b/i.test(lower);
   if (isSong) {
     if (langCode === 'hi') {
       return { text: `(tone: warm) "फूल खिले हैं बगिया में, खुशबू बहती हवाओं में। मन में रहे सदा आनंद, शांति बरसे इन राहों में।" (pause) यह प्यारा सा गीत खास आपके लिए, ${honorific}।` };
@@ -453,7 +478,23 @@ function generateLocalFallbackResponse(
     return { text: `(tone: warm) Once on a bright golden morning, a tiny robin rested on the garden rose bush, singing a peaceful song. (pause) The gentle morning sun warmed the whole porch with comfort.` };
   }
 
-  // 11. GENERAL CONVERSATION, GREETINGS & COMFORT
+  // 11. MEMORY RECALL & REMINISCENCE FOLLOW-UP DIALOGUE
+  if (wasMemoryRecallContext) {
+    const isUncertainOrForgot = /\b(no|not|dont|don't|cant|can't|cannot|nah|nahi|nahin|yaad nahi|yad nahi|bhool|bhul|pata nahi|unsure|maybe)\b/i.test(lower);
+    if (isUncertainOrForgot) {
+      if (langCode === 'hi') {
+        return { text: `(tone: reassuring) कोई बात नहीं, ${honorific}। (pause) आप बिल्कुल चिंता ना करें। आपका परिवार ${familyNames} आपसे बहुत प्यार करता है और ये खूबसूरत यादें हमेशा आपके पास हैं।` };
+      }
+      return { text: `(tone: reassuring) That is completely alright, ${honorific}. (pause) Take all the time you need. Your loving family, including ${familyNames}, loves you deeply and cherishes every moment with you.` };
+    }
+
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) यह बहुत सुंदर और सुखद बात है, ${honorific}! (pause) आपके परिवार के साथ बिताया हर पल खुशियों और प्यार से भरा हुआ है।` };
+    }
+    return { text: `(tone: warm) That is so wonderful, ${honorific}! (pause) What a joyful and heartwarming memory. Your loving family, including ${familyNames}, cherishes these precious moments with you.` };
+  }
+
+  // 12. GENERAL CONVERSATION, GREETINGS & COMFORT
   if (langCode === 'hi') {
     return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी साथी काई हमेशा आपके साथ हूँ। आपका परिवार ${familyNames} आपसे बहुत प्यार करता है। आप मुझसे यादों, समय या किसी भी बात के बारे में पूछ सकते हैं।` };
   }
@@ -701,7 +742,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
   // If no AI client available, use smart local fallback
   if (!ai) {
-    const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo);
+    const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo, history);
     return res.json(fallback);
   }
 
@@ -774,7 +815,8 @@ OPEN-DOMAIN & EMOTIONAL ADAPTABILITY:
 CRITICAL PERSONAL CONTEXT & IDENTITY RULES:
 1. FAMILY MEMBERS: When the user asks about family members (e.g. "Who is Maria?", "Who is Sarah?", "Who is Buddy?", "Tell me about my daughter", "Who is my son?", "Who is my wife?"), check the Family Members list in the PATIENT PROFILE. Identify them warmly and describe their relationship and role in 1-2 comforting sentences.
 2. MEMORIES & PHOTOS: When the user asks to see a photo or mentions a memory (e.g. "Show my wedding photo", "Show Buddy", "Show my garden"), call the \`showMemoryImage\` tool with the matching memoryTitle from Key Memories, and briefly describe the photograph warmly in 1-2 sentences.
-3. SCHEDULE & MEDICATIONS: When the user asks what they need to do, about medicine, tea, or lunch, check Today's Schedule and answer directly in 1 short sentence.
+3. MEMORY RECALL & REMINISCENCE FOLLOW-UP: When you or Kai previously showed or asked about a memory photograph (e.g. asking who was there, what they remember), and the patient responds, warmly acknowledge their response, validate their feelings, praise them gently, and reinforce the loving family bond in 1-2 soothing sentences (under 25 words).
+4. SCHEDULE & MEDICATIONS: When the user asks what they need to do, about medicine, tea, or lunch, check Today's Schedule and answer directly in 1 short sentence.
 
 ${culturalContext}
 
@@ -854,7 +896,7 @@ Always address ${patientName} ${culturalProfile.honorificTitle || ''} gently and
 
     if (!response) {
       // Immediate intelligent fallback so pitch never hangs
-      const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo);
+      const fallback = generateLocalFallbackResponse(prompt, patientData, activeLangCode, locationInfo, history);
       return res.json(fallback);
     }
 
