@@ -255,7 +255,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
     { id: 'teapot', name: 'Tea Kettle', icon: '🫖' },
   ];
 
-  const [trayPhase, setTrayPhase] = useState<'memorize' | 'recall' | 'result'>('memorize');
+  const [trayPhase, setTrayPhase] = useState<'idle' | 'memorize' | 'recall' | 'result'>('idle');
   const [trayCountdown, setTrayCountdown] = useState(5);
   const [trayTargets, setTrayTargets] = useState<any[]>([]);
   const [trayChoices, setTrayChoices] = useState<any[]>([]);
@@ -282,7 +282,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
 
   useEffect(() => {
     let timer: any;
-    if (trayPhase === 'memorize' && selectedGame === 'tray') {
+    if (activeTab === 'puzzles' && selectedGame === 'tray' && trayPhase === 'memorize') {
       if (trayCountdown > 0) {
         timer = setTimeout(() => setTrayCountdown((prev) => prev - 1), 1000);
       } else {
@@ -291,7 +291,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
       }
     }
     return () => clearTimeout(timer);
-  }, [trayPhase, trayCountdown, selectedGame]);
+  }, [activeTab, trayPhase, trayCountdown, selectedGame]);
 
   const toggleTrayItemSelect = (id: string) => {
     if (trayPhase !== 'recall') return;
@@ -409,7 +409,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
   ];
 
   const [changeSceneIdx, setChangeSceneIdx] = useState(0);
-  const [changePhase, setChangePhase] = useState<'observe' | 'changed' | 'result'>('observe');
+  const [changePhase, setChangePhase] = useState<'idle' | 'observe' | 'changed' | 'result'>('idle');
   const [changeCountdown, setChangeCountdown] = useState(6);
   const [selectedChangeAnswer, setSelectedChangeAnswer] = useState<number | null>(null);
   const [changeStartTime, setChangeStartTime] = useState<number>(0);
@@ -425,7 +425,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
 
   useEffect(() => {
     let timer: any;
-    if (changePhase === 'observe' && selectedGame === 'changed') {
+    if (activeTab === 'puzzles' && selectedGame === 'changed' && changePhase === 'observe') {
       if (changeCountdown > 0) {
         timer = setTimeout(() => setChangeCountdown((prev) => prev - 1), 1000);
       } else {
@@ -434,7 +434,7 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
       }
     }
     return () => clearTimeout(timer);
-  }, [changePhase, changeCountdown, selectedGame]);
+  }, [activeTab, changePhase, changeCountdown, selectedGame]);
 
   const handleSelectChangeAnswer = (idx: number) => {
     if (selectedChangeAnswer !== null) return;
@@ -616,10 +616,18 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
     else if (game === 'object') initObjectRecognition();
   };
 
-  // Initialize selected game on mount of puzzles tab
+  // When switching to puzzles tab, keep games in clean ready state until user starts them
   useEffect(() => {
     if (activeTab === 'puzzles') {
-      initMemoryTray();
+      // Prepare tray targets quietly without triggering voice prompt
+      if (trayPhase === 'idle') {
+        const shuffled = [...trayItemsBank].sort(() => 0.5 - Math.random());
+        const targets = shuffled.slice(0, 4);
+        const distractors = shuffled.slice(4, 8);
+        const choices = [...targets, ...distractors].sort(() => 0.5 - Math.random());
+        setTrayTargets(targets);
+        setTrayChoices(choices);
+      }
     }
   }, [activeTab]);
 
@@ -908,6 +916,27 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
                   </button>
                 </div>
 
+                {/* Idle / Ready Phase */}
+                {trayPhase === 'idle' && (
+                  <div className="text-center py-6 space-y-4 animate-fade-in">
+                    <div className="w-16 h-16 bg-amber-100 text-amber-800 rounded-3xl flex items-center justify-center text-3xl mx-auto shadow-sm">
+                      ☕
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-800">Memory Tray (Visual Recall)</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                        Look closely at 4 items placed on the tray for 5 seconds. When they disappear, recall which items were there!
+                      </p>
+                    </div>
+                    <button
+                      onClick={initMemoryTray}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs px-6 py-3 rounded-2xl shadow-md transition transform hover:scale-105"
+                    >
+                      Start Memory Tray
+                    </button>
+                  </div>
+                )}
+
                 {/* Memorize Phase */}
                 {trayPhase === 'memorize' && (
                   <div className="space-y-4 text-center animate-fade-in">
@@ -1058,6 +1087,27 @@ export const CognitiveGamesView: React.FC<CognitiveGamesViewProps> = ({
                     <RefreshCw className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Idle / Ready Phase */}
+                {changePhase === 'idle' && (
+                  <div className="text-center py-6 space-y-4 animate-fade-in">
+                    <div className="w-16 h-16 bg-indigo-100 text-indigo-800 rounded-3xl flex items-center justify-center text-3xl mx-auto shadow-sm">
+                      🔍
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-slate-800">What Changed? (Attention Spotter)</h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                        Observe the items on the shelf carefully. In a few seconds, one item will change or disappear!
+                      </p>
+                    </div>
+                    <button
+                      onClick={initWhatChanged}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs px-6 py-3 rounded-2xl shadow-md transition transform hover:scale-105"
+                    >
+                      Start What Changed
+                    </button>
+                  </div>
+                )}
 
                 {/* Stage 1: Observe Scene */}
                 {changePhase === 'observe' && (
