@@ -115,6 +115,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
   const [newFamilyDesc, setNewFamilyDesc] = useState('');
   const [newFamilyPhoto, setNewFamilyPhoto] = useState('');
 
+  // Step 4: Schedule Form State
+  const [schedule, setSchedule] = useState<ScheduleEvent[]>(DEFAULT_PRESET_SCHEDULE);
+  const [newTime, setNewTime] = useState('14:00');
+  const [newTask, setNewTask] = useState('');
+
   const handleAddMemory = () => {
     if (!newMemoryTitle.trim()) return;
     const newMem: Memory = {
