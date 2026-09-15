@@ -182,26 +182,29 @@ export const App: React.FC = () => {
                 setActiveMemoryModal(foundMem);
               }
             } else if (call.name === 'playVoiceNote') {
-              const unplayed = (currentPatient.voiceNotes || []).find((n) => !n.played) || (currentPatient.voiceNotes || [])[0];
+              const notes = currentPatient.voiceNotes || [];
+              const unplayed = notes.find((n) => !n.played) || notes[0];
               if (unplayed) {
                 await dataService.markVoiceNotePlayed(currentPatient.id, unplayed.id);
                 setPatientData((prev) =>
                   prev ? { ...prev, voiceNotes: prev.voiceNotes.map((n) => (n.id === unplayed.id ? { ...n, played: true } : n)) } : null
                 );
 
-                const rawMsg = (unplayed as any).message || (unplayed as any).text || '';
-                const isGenericPlaceholder = !rawMsg.trim() || 
-                  /^(a\s+)?voice\s+(message|note|recording(\s+message)?)$/i.test(rawMsg.trim());
-
-                const noteMsg = !isGenericPlaceholder
-                  ? rawMsg
-                  : `Hi ${currentPatient.profile.name}, sending you so much love today! I am thinking of you, and I will be stopping by to visit you soon with warm tea and cookies. See you very soon!`;
-
-                const sender = unplayed.senderName || 'Sarah';
-                const speechText = `(tone: gentle) Message from ${sender}: (pause) "${noteMsg}"`;
+                const sender = unplayed.senderName || 'your caregiver';
+                const rawMsg = ((unplayed as any).message || (unplayed as any).text || '').trim();
+                const isGenericPlaceholder = !rawMsg || 
+                  /^(a\s+)?voice\s+(message|note|recording(\s+message)?)$/i.test(rawMsg);
 
                 const audioSrc = unplayed.audioData || (unplayed as any).audioUrl;
-                if (audioSrc && typeof audioSrc === 'string' && audioSrc.length > 100 && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:'))) {
+                const hasValidAudio = audioSrc && typeof audioSrc === 'string' && audioSrc.length > 50 && (audioSrc.startsWith('data:audio') || audioSrc.startsWith('blob:') || audioSrc.startsWith('http'));
+
+                const speechText = hasValidAudio
+                  ? `(tone: gentle) Playing voice message from ${sender}.`
+                  : !isGenericPlaceholder
+                  ? `(tone: gentle) Message from ${sender}: (pause) "${rawMsg}"`
+                  : `(tone: gentle) Here is a voice message from ${sender}.`;
+
+                if (hasValidAudio) {
                   try {
                     const audio = new Audio(audioSrc);
                     audio.onerror = () => {
@@ -220,6 +223,9 @@ export const App: React.FC = () => {
                 } else {
                   speak(speechText);
                 }
+                shouldSkipDefaultSpeak = true;
+              } else {
+                speak(`(tone: gentle) You have no new voice messages right now, ${currentPatient.profile.name || 'David'}.`);
                 shouldSkipDefaultSpeak = true;
               }
             } else if (call.name === 'navigateToPage' && call.args?.page) {
