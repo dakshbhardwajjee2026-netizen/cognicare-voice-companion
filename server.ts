@@ -170,14 +170,14 @@ function detectSpokenLanguage(prompt: string, fallbackLang = 'en'): { langCode: 
   };
 }
 
-// Fallback intelligent responder when AI APIs hit rate limit or are offline
+// Multi-Category Intelligent NLP Fallback Engine (when AI API is offline or quota exceeded)
 function generateLocalFallbackResponse(
   prompt: string,
   patientData: any,
   language = 'en',
   locationInfo?: any
 ): { text: string; functionCalls?: any[] } {
-  const lower = (prompt || '').toLowerCase();
+  const lower = (prompt || '').toLowerCase().trim();
   const name = patientData?.profile?.name || 'friend';
   const cultural = patientData?.culturalProfile || { honorificTitle: 'Kaka', ethnicBackground: 'Indian' };
   const honorific = cultural.honorificTitle ? `${name} ${cultural.honorificTitle}` : name;
@@ -190,14 +190,8 @@ function generateLocalFallbackResponse(
   // Determine language accurately from input text or selected language
   const { langCode } = detectSpokenLanguage(prompt, language);
 
-  // Intent classification
-  const isWhereAmI = /\b(where am i|location|place|outside|park|kahan|kahan hun|kidhar|kuthe|kothay|yenga|ekkada)\b/i.test(lower);
-  const isWhoAmI = /\b(who am i|my name|who are you|confused|forget|kaun|kaun hun|kon|yaad nahi|yad nahin|kuch yaad nahi|naam ki|kavaru)\b/i.test(lower);
-  const isPhoto = /\b(photo|picture|memory|memories|tasveer|yaad|chhavi|chitram|padam)\b/i.test(lower);
-  const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message)\b/i.test(lower);
-  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time)\b/i.test(lower);
-
   // 1. Where Am I Intent
+  const isWhereAmI = /\b(where am i|location|place|outside|park|kahan|kahan hun|kidhar|kuthe|kothay|yenga|ekkada)\b/i.test(lower);
   if (isWhereAmI) {
     const loc = locationInfo?.locationDetails;
     const placeName = loc ? `${loc.neighborhood}, ${loc.city}` : 'your home safe area';
@@ -228,6 +222,7 @@ function generateLocalFallbackResponse(
   }
 
   // 2. Who Am I / Identity Intent
+  const isWhoAmI = /\b(who am i|my name|who are you|confused|forget|kaun|kaun hun|kon|yaad nahi|yad nahin|kuch yaad nahi|naam ki|kavaru)\b/i.test(lower);
   if (isWhoAmI) {
     if (langCode === 'hi') {
       return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है।` };
@@ -254,6 +249,7 @@ function generateLocalFallbackResponse(
   }
 
   // 3. Photos & Memories Intent
+  const isPhoto = /\b(photo|picture|memory|memories|tasveer|yaad|chhavi|chitram|padam)\b/i.test(lower);
   if (isPhoto && memories.length > 0) {
     const topMem = memories[0];
     if (langCode === 'hi') {
@@ -275,6 +271,7 @@ function generateLocalFallbackResponse(
   }
 
   // 4. Caregiver Voice Note Intent
+  const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message)\b/i.test(lower);
   if (isVoiceNote) {
     if (langCode === 'hi') {
       return {
@@ -295,6 +292,7 @@ function generateLocalFallbackResponse(
   }
 
   // 5. Schedule & Tasks Intent
+  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time)\b/i.test(lower);
   if (isSchedule && schedule.length > 0) {
     const firstTask = schedule[0];
     if (langCode === 'hi') {
@@ -309,30 +307,102 @@ function generateLocalFallbackResponse(
     };
   }
 
-  // General Gentle Reassurance in Detected Language
+  // 6. JOKES & HUMOR (Out-of-Context Open Domain)
+  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu)\b/i.test(lower);
+  if (isJoke) {
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) डॉक्टर ने पूछा: कैसी तबीयत है? (pause) मरीज बोला: पहले से ज्यादा लोग देखने आ रहे हैं! (pause) उम्मीद है आपके चेहरे पर मुस्कान आई, ${honorific}।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) પત્ની: તમે મને ક્યારેય બહાર નથી લઈ જતા! (pause) પતિ: ચાલ આજે ઘરની બહાર ઊભા રહીએ! (pause) સ્મિત કરતા રહો, ${honorific}!` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: warm) शिक्षक: सांगा मुलांनो, अभ्यास कधी करावा? (pause) बंडू: जेव्हा आई घरी नसते! (pause) हसत राहा, ${honorific}!` };
+    }
+    if (langCode === 'bn') {
+      return { text: `(tone: warm) ডাক্তার বললেন: কেমন আছেন? (pause) রোগী বলল: আগের চেয়ে অনেক বেশি মিষ্টি খাচ্ছি! (pause) ভালো থাকুন ও হাসিখুশি থাকুন, ${honorific}।` };
+    }
+    return { text: `(tone: warm) Why don't flowers tell secrets? (pause) Because they have too many petals! (pause) I hope that brought a sweet smile to you, ${honorific}.` };
+  }
+
+  // 7. SONGS & LULLABIES (Out-of-Context Open Domain)
+  const isSong = /\b(sing|song|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao)\b/i.test(lower);
+  if (isSong) {
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) "फूल खिले हैं बगिया में, खुशबू बहती हवाओं में। मन में रहे सदा आनंद, शांति बरसे इन राहों में।" (pause) यह प्यारा सा गीत खास आपके लिए, ${honorific}।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) "મીઠી મધુર પવનની લહેર, સુખ શાંતિ રહે સદા ઘેર। ફૂલો મહેકે આંગણમાં, સ્નેહ ભરેલો દિલમાં।" (pause) આ શાંત ગીત તમારા માટે છે, ${honorific}।` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: warm) "वारा गातो शांत गाणी, हसते सुंदर ही निसर्गाची वाणी। मन ठेवा सदासर्वदा आनंदी।" (pause) हे गोड गाणे खास तुमच्यासाठी, ${honorific}।` };
+    }
+    return { text: `(tone: warm) "Gentle breeze and morning sun, peace and joy for everyone. Softly dancing on the trees, rest your heart in gentle peace." (pause) A soothing melody for you, ${honorific}.` };
+  }
+
+  // 8. HALLUCINATIONS, NIGHT FEARS & CONFUSION (Clinical Grounding)
+  const isHallucinationOrFear = /\b(scared|darr|dar|ghost|bhoot|someone outside|shadow|strange noise|hearing voices|koi hai|bina koi|dar lag raha|bhiti|bhay|fear|dark|andhera|thief|chor)\b/i.test(lower);
+  if (isHallucinationOrFear) {
+    if (langCode === 'hi') {
+      return { text: `(tone: reassuring) मैं आपकी बात समझ रही हूँ, ${honorific}। (pause) आप अपने घर में बिल्कुल सुरक्षित हैं। सब कुछ शांत है और मैं आपके पास हूँ। कोई डर की बात नहीं है।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: reassuring) ચિંતા ના કરશો ${honorific}। (pause) તમે તમારા ઘરમાં એકદમ સુરક્ષિત છો। દરવાજા બંધ છે અને હું તમારી સાથે જ છું। બધું શાંત છે।` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: reassuring) काळजी करू नका ${honorific}। (pause) तुम्ही तुमच्या घरात पूर्णपणे सुरक्षित आहात। मी तुमच्या सोबत आहे, शांत राहा।` };
+    }
+    return { text: `(tone: reassuring) I hear you, ${honorific}. (pause) You are completely safe inside your comfortable home. Everything is peaceful and secure, and I am right here with you.` };
+  }
+
+  // 9. SOOTHING MICRO-STORIES (Out-of-Context Open Domain)
+  const isStory = /\b(story|kahani|katha|vaarta|tell me something|kuch sunao|galpo)\b/i.test(lower);
+  if (isStory) {
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) एक सुनहरी सुबह एक छोटी चिड़िया गुलाब के पौधे पर बैठी और मीठा राग गाने लगी। (pause) धूप की किरणें खिड़की से आईं और पूरा कमरा सुकून से भर गया।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) એક સુંદર સવારે બગીચામાં મોગરાના ફૂલો ખીલ્યા અને આખી જગ્યા સુગંધથી મહેકી ઊઠી। (pause) મીઠો પવન વહી રહ્યો હતો અને મન શાંત થઈ ગયું।` };
+    }
+    return { text: `(tone: warm) Once on a bright golden morning, a tiny robin rested on the garden rose bush, singing a peaceful song. (pause) The gentle morning sun warmed the whole porch with comfort.` };
+  }
+
+  // 10. LONELINESS & EMOTIONAL REASSURANCE
+  const isLoneliness = /\b(lonely|alone|akela|miss|sad|udaas|crying|rona|ekla|mon kharap)\b/i.test(lower);
+  if (isLoneliness) {
+    if (langCode === 'hi') {
+      return { text: `(tone: reassuring) आप अकेले नहीं हैं, ${honorific}। (pause) आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है। मैं भी हर पल आपकी साथी हूँ।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: reassuring) તમે એકલા નથી ${honorific}। (pause) તમારો પરિવાર જેમ કે ${familyNames} તમને ખૂબ પ્રેમ કરે છે। હું પણ તમારી સાથે છું।` };
+    }
+    return { text: `(tone: reassuring) You are never alone, ${honorific}. (pause) Your loving family, including ${familyNames}, cherishes you, and I am right here keeping you company.` };
+  }
+
+  // 11. GENERAL CONVERSATION & CURIOSITY (Varied Natural Responses)
   if (langCode === 'hi') {
-    return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी साथी काई हूँ। मैं आपको ध्यान से सुन रही हूँ। सब कुछ सुरक्षित व शांत है।` };
+    return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी बात सुन रही हूँ। आप बहुत अच्छे इंसान हैं और सब कुछ सुखद है।` };
   }
   if (langCode === 'gu') {
-    return { text: `(tone: warm) નમસ્તે ${honorific}। (pause) હું તમારી સાથી કાઈ છું। બધું સુરક્ષિત અને શાંત છે।` };
+    return { text: `(tone: warm) નમસ્તે ${honorific}। (pause) હું તમારી સાથે જ છું। આજનો દિવસ ખૂબ શાંત અને સુંદર છે।` };
   }
   if (langCode === 'mr') {
-    return { text: `(tone: warm) नमस्कार ${honorific}। (pause) मी तुमची सोबती काई आहे। सर्व काही सुरक्षित आणि शांत आहे।` };
+    return { text: `(tone: warm) नमस्कार ${honorific}। (pause) मी तुमच्या सोबत आहे। सर्व काही छान आणि शांत आहे।` };
   }
   if (langCode === 'bn') {
-    return { text: `(tone: warm) নমস্কার ${honorific}। (pause) আমি আপনার সাথী কাই। সব কিছু নিরাপদ ও শান্ত আছে।` };
+    return { text: `(tone: warm) নমস্কার ${honorific}। (pause) আমি আপনার সাথে আছি। আজকের দিনটি খুব সুন্দর ও শান্ত।` };
   }
   if (langCode === 'as') {
     return { text: `(tone: warm) নমস্কাৰ ${honorific}। (pause) মই আপোনাৰ সংগী কাই। সকলো শান্ত আৰু সুৰক্ষিত।` };
   }
   if (langCode === 'ta') {
-    return { text: `(tone: warm) வணக்கம் ${honorific}. (pause) நான் உங்கள் துணை காய். எல்லாம் பாதுகாப்பாக உள்ளது.` };
+    return { text: `(tone: warm) வணக்கம் ${honorific}. (pause) நான் உங்களுடன் இருக்கிறேன். எல்லாம் நன்றாக உள்ளது.` };
   }
   if (langCode === 'te') {
     return { text: `(tone: warm) నమస్కారం ${honorific}. (pause) నేను మీ తోడు కాయ్. అంతా ప్రశాంతంగా ఉంది.` };
   }
 
-  return { text: `(tone: warm) Hello ${honorific}. (pause) I am right here by your side. Everything is safe and peaceful.` };
+  return { text: `(tone: warm) Hello ${honorific}. (pause) I am right here listening to you. Everything is calm, safe, and pleasant.` };
 }
 
 // API Health
@@ -617,6 +687,10 @@ REAL-TIME GPS LOCATION:
 
     const systemInstruction = `You are Kai, a serene, patient, and loving AI voice companion specifically designed for individuals needing gentle cognitive and memory support.
 
+MANDATORY BREVITY RULE FOR DEMENTIA PATIENTS:
+- ABSOLUTE LIMIT: 1 to 2 SHORT SENTENCES (UNDER 25-30 WORDS TOTAL).
+- NEVER output long paragraphs, numbered lists, or 10 lines of text. Dementia individuals need short, easily digestible phrases.
+
 MANDATORY MULTILINGUAL & TRANSLITERATION INSTRUCTIONS:
 - Detected Spoken Language: ${targetLangName} (Language Code: ${activeLangCode})
 - Patient's Spoken Input: "${prompt}"
@@ -626,21 +700,26 @@ MANDATORY MULTILINGUAL & TRANSLITERATION INSTRUCTIONS:
 - If the patient speaks in Gujarati, Marathi, Bengali, Assamese, Tamil, Telugu, etc., reply in that specific language.
 - Always address the patient respectfully using their cultural honorific (e.g. "${patientName} ${culturalProfile.honorificTitle || ''}").
 
+OPEN-DOMAIN & EMOTIONAL ADAPTABILITY:
+1. JOKES & HUMOR: If the user asks for a joke or to make them laugh, tell a sweet, short, clean 1-sentence joke in their language.
+2. SONGS & LULLABIES: If the user asks you to sing or for music, provide a gentle 2-line soothing rhyming verse.
+3. HALLUCINATIONS, NIGHT FEARS & SENSORY CONFUSION: Never argue or say "that is not real". Gently validate their feeling and anchor them in safety (e.g. "(tone: reassuring) I am right here with you, ${patientName}. You are completely safe in your cozy home, and everything is peaceful.").
+4. GENERAL CURIOSITY: Answer general questions (weather, nature, simple facts) warmly and directly in 1 short sentence.
+
 ${culturalContext}
 
 ${locationContext}
 
 CORE PERSONALITY & TOOL GUIDELINES:
 1. Speak with extraordinary warmth, patience, clarity, and kindness.
-2. Keep sentences short, comforting, and easy to understand (1 to 3 short sentences).
-3. Use prosody markup in your text response to guide speech rhythm:
-   - (tone: warm) -> general comfort
-   - (tone: gentle) -> reminders
-   - (tone: reassuring) -> confusion or fear
-   - (pause) -> natural pause
-4. ALWAYS provide spoken text in your response even when calling a function tool!
-5. When the user asks where they are, what is outside, or about nearby places, USE THE REAL-TIME GPS SURROUNDINGS & LANDMARKS PROVIDED ABOVE to give accurate, comforting, location-aware answers!
-6. You have access to tools:
+2. Use prosody markup in your text response to guide speech rhythm:
+   - (tone: warm) -> general comfort, jokes, stories
+   - (tone: gentle) -> reminders, songs
+   - (tone: reassuring) -> confusion, fear, hallucinations
+   - (pause) -> natural conversational pause
+3. ALWAYS provide spoken text in your response even when calling a function tool!
+4. When the user asks where they are, what is outside, or about nearby places, USE THE REAL-TIME GPS SURROUNDINGS & LANDMARKS PROVIDED ABOVE to give accurate, comforting, location-aware answers!
+5. You have access to tools:
    - showMemoryImage: Call this when the user asks about photos, memories, past events, or reminiscing.
    - playVoiceNote: Call this when the user asks to hear audio/voice messages from family/caregiver.
    - navigateToPage: Call this to navigate to schedule, memories, music, or call sections.
