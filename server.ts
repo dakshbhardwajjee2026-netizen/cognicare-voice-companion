@@ -248,29 +248,138 @@ function generateLocalFallbackResponse(
     return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe at home. Your family, including ${familyNames}, loves you very much.` };
   }
 
-  // 3. Photos & Memories Intent
-  const isPhoto = /\b(photo|picture|memory|memories|tasveer|yaad|chhavi|chitram|padam)\b/i.test(lower);
+  // Helper for regex escaping
+  const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // 3. JOKES & HUMOR (Out-of-Context Open Domain)
+  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu)\b/i.test(lower);
+  if (isJoke) {
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) डॉक्टर ने पूछा: कैसी तबीयत है? (pause) मरीज बोला: पहले से ज्यादा लोग देखने आ रहे हैं! (pause) उम्मीद है आपके चेहरे पर मुस्कान आई, ${honorific}।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) પત્ની: તમે મને ક્યારેય બહાર નથી લઈ જતા! (pause) પતિ: ચાલ આજે ઘરની બહાર ઊભા રહીએ! (pause) સ્મિત કરતા રહો, ${honorific}!` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: warm) शिक्षक: सांगा मुलांनो, अभ्यास कधी करावा? (pause) बंडू: जेव्हा आई घरी नसते! (pause) हसत राहा, ${honorific}!` };
+    }
+    if (langCode === 'bn') {
+      return { text: `(tone: warm) ডাক্তার বললেন: কেমন আছেন? (pause) রোগী বলল: আগের চেয়ে অনেক বেশি মিষ্টি খাচ্ছি! (pause) ভালো থাকুন ও হাসিখুশি থাকুন, ${honorific}।` };
+    }
+    return { text: `(tone: warm) Why don't flowers tell secrets? (pause) Because they have too many petals! (pause) I hope that brought a sweet smile to you, ${honorific}.` };
+  }
+
+  // 4. SONGS & LULLABIES (Out-of-Context Open Domain)
+  const isSong = /\b(sing|song|songs|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao)\b/i.test(lower);
+  if (isSong) {
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) "फूल खिले हैं बगिया में, खुशबू बहती हवाओं में। मन में रहे सदा आनंद, शांति बरसे इन राहों में।" (pause) यह प्यारा सा गीत खास आपके लिए, ${honorific}।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) "મીઠી મધુર પવનની લહેર, સુખ શાંતિ રહે સદા ઘેર। ફૂલો મહેકે આંગણમાં, સ્નેહ ભરેલો દિલમાં।" (pause) આ શાંત ગીત તમારા માટે છે, ${honorific}।` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: warm) "वारा गातो शांत गाणी, हसते सुंदर ही निसर्गाची वाणी। मन ठेवा सदासर्वदा आनंदी।" (pause) हे गोड गाणे खास तुमच्यासाठी, ${honorific}।` };
+    }
+    return { text: `(tone: warm) "Gentle breeze and morning sun, peace and joy for everyone. Softly dancing on the trees, rest your heart in gentle peace." (pause) A soothing melody for you, ${honorific}.` };
+  }
+
+  // 5. Photos & Memories Intent (Smart Keyword & Title Matching)
+  const isPhoto = /\b(photo|picture|photograph|memory|memories|tasveer|yaad|chhavi|chitram|padam|dikhao|wedding|shadi|vivah|lagan)\b/i.test(lower) || (lower.startsWith('show') && memories.length > 0);
   if (isPhoto && memories.length > 0) {
-    const topMem = memories[0];
+    let matchedMem = memories.find((m: any) => {
+      const titleLower = (m.title || '').toLowerCase();
+      const descLower = (m.descriptionForKai || '').toLowerCase();
+      const catLower = (m.category || '').toLowerCase();
+      const words = titleLower.split(/\s+/).filter((w: string) => w.length > 3);
+      return (
+        lower.includes(titleLower) ||
+        words.some((w: string) => lower.includes(w)) ||
+        (lower.includes('wedding') && (titleLower.includes('wedding') || titleLower.includes('marriage'))) ||
+        (lower.includes('shadi') && (titleLower.includes('wedding') || titleLower.includes('marriage'))) ||
+        (lower.includes('buddy') && (titleLower.includes('buddy') || descLower.includes('buddy'))) ||
+        (lower.includes('garden') && (titleLower.includes('garden') || descLower.includes('garden'))) ||
+        (lower.includes('dog') && (titleLower.includes('buddy') || descLower.includes('dog'))) ||
+        (lower.includes('lake') && titleLower.includes('lake')) ||
+        (lower.includes('trip') && (titleLower.includes('trip') || catLower.includes('vacation')))
+      );
+    });
+
+    if (!matchedMem) {
+      matchedMem = memories[0];
+    }
+
     if (langCode === 'hi') {
       return {
-        text: `(tone: warm) ${honorific}, यह रही आपकी एक प्यारी याद: ${topMem.title}। (pause) ${topMem.descriptionForKai}`,
-        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
+        text: `(tone: warm) ${honorific}, यह रही आपकी खास याद: ${matchedMem.title}। (pause) ${matchedMem.descriptionForKai}`,
+        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: matchedMem.title } }],
       };
     }
     if (langCode === 'gu') {
       return {
-        text: `(tone: warm) ${honorific}, આ રહી તમારી એક સુંદર યાદ: ${topMem.title}। (pause) ${topMem.descriptionForKai}`,
-        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
+        text: `(tone: warm) ${honorific}, આ રહી તમારી ખાસ યાદ: ${matchedMem.title}। (pause) ${matchedMem.descriptionForKai}`,
+        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: matchedMem.title } }],
+      };
+    }
+    if (langCode === 'mr') {
+      return {
+        text: `(tone: warm) ${honorific}, ही घ्या तुमची सुंदर आठवण: ${matchedMem.title}। (pause) ${matchedMem.descriptionForKai}`,
+        functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: matchedMem.title } }],
       };
     }
     return {
-      text: `(tone: warm) ${honorific}, here is a cherished memory photograph: ${topMem.title}. (pause) ${topMem.descriptionForKai}`,
-      functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: topMem.title } }],
+      text: `(tone: warm) ${honorific}, here is a cherished photograph: ${matchedMem.title}. (pause) ${matchedMem.descriptionForKai}`,
+      functionCalls: [{ name: 'showMemoryImage', args: { memoryTitle: matchedMem.title } }],
     };
   }
 
-  // 4. Caregiver Voice Note Intent
+  // 6. Family Members & Loved Ones Inquiry Intent (Exact word-boundary matched)
+  let matchedFamilyMember: any = null;
+  for (const m of familyMembers) {
+    const memName = (m.name || '').toLowerCase().trim();
+    const memRel = (m.relationship || '').toLowerCase().trim();
+    const nameParts = memName.split(/\s+/).filter((p: string) => p.length > 2);
+
+    const relRegex = memRel ? new RegExp(`\\b${escapeRegExp(memRel)}\\b`, 'i') : null;
+    const nameRegex = memName ? new RegExp(`\\b${escapeRegExp(memName)}\\b`, 'i') : null;
+    const partMatch = nameParts.some((part: string) => new RegExp(`\\b${escapeRegExp(part)}\\b`, 'i').test(lower));
+
+    if ((nameRegex && nameRegex.test(lower)) || (relRegex && relRegex.test(lower)) || partMatch) {
+      matchedFamilyMember = m;
+      break;
+    }
+  }
+
+  // Also check general family/relationship keywords if no specific member matched
+  const isGeneralFamily = /\b(family|parivar|kutumb|daughter|beti|son|beta|wife|patni|husband|pati|children|bacche|poti|pota|granddaughter|grandson|dog|pet|caregiver)\b/i.test(lower);
+
+  if (matchedFamilyMember) {
+    const mem = matchedFamilyMember;
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) ${mem.name} आपके ${mem.relationship} हैं। (pause) ${mem.descriptionForKai || `${mem.name} आपसे बहुत प्यार करते हैं और आपका हमेशा ख्याल रखते हैं।`}` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) ${mem.name} તમારા ${mem.relationship} છે। (pause) ${mem.descriptionForKai || `${mem.name} તમને ખૂબ પ્રેમ કરે છે અને તમારી કાળજી રાખે છે।`}` };
+    }
+    if (langCode === 'mr') {
+      return { text: `(tone: warm) ${mem.name} तुमचे ${mem.relationship} आहेत। (pause) ${mem.descriptionForKai || `${mem.name} तुमच्यावर खूप प्रेम करतात।`}` };
+    }
+    if (langCode === 'bn') {
+      return { text: `(tone: warm) ${mem.name} আপনার ${mem.relationship}। (pause) ${mem.descriptionForKai || `${mem.name} আপনাকে খুব ভালোবাসেন।`}` };
+    }
+    return { text: `(tone: warm) ${mem.name} is your ${mem.relationship}. (pause) ${mem.descriptionForKai || `${mem.name} loves you dearly and is always thinking of you.`}` };
+  } else if (isGeneralFamily && familyMembers.length > 0) {
+    const membersSummary = familyMembers.map((m: any) => `${m.name} (${m.relationship})`).join(', ');
+    if (langCode === 'hi') {
+      return { text: `(tone: warm) आपके प्यारे परिवार में ${membersSummary} हैं। (pause) वे सभी आपसे बहुत प्यार करते हैं और हमेशा आपके साथ हैं।` };
+    }
+    if (langCode === 'gu') {
+      return { text: `(tone: warm) તમારા પરિવારમાં ${membersSummary} છે। (pause) તેઓ બધા તમને ખૂબ પ્રેમ કરે છે।` };
+    }
+    return { text: `(tone: warm) In your loving family, you have ${membersSummary}. (pause) They all cherish you deeply and are always by your side.` };
+  }
+
+  // 5. Caregiver Voice Note Intent
   const isVoiceNote = /\b(voice note|voice message|message|sandesh|awaaz|caregiver note|audio message)\b/i.test(lower);
   if (isVoiceNote) {
     if (langCode === 'hi') {
@@ -291,56 +400,52 @@ function generateLocalFallbackResponse(
     };
   }
 
-  // 5. Schedule & Tasks Intent
-  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time)\b/i.test(lower);
+  // 6. Schedule & Tasks Intent (Smart Activity Matching)
+  const isSchedule = /\b(schedule|task|routine|medicine|dawa|dawai|today|aaj|aaje|pills|time|lunch|breakfast|dinner|khana|doctor|walk|afternoon|morning|evening|chai|tea)\b/i.test(lower);
   if (isSchedule && schedule.length > 0) {
-    const firstTask = schedule[0];
+    let matchedTask = schedule.find((s: any) => {
+      const taskLower = (s.task || '').toLowerCase();
+      const instLower = (s.instructions || '').toLowerCase();
+      return (
+        (lower.includes('medicine') || lower.includes('dawa') || lower.includes('pill')) &&
+        (taskLower.includes('med') || taskLower.includes('pill') || instLower.includes('med') || instLower.includes('pill') || instLower.includes('water'))
+      ) || (
+        (lower.includes('tea') || lower.includes('chai')) &&
+        (taskLower.includes('tea') || taskLower.includes('chai') || instLower.includes('tea'))
+      ) || (
+        (lower.includes('walk') || lower.includes('garden')) &&
+        (taskLower.includes('walk') || taskLower.includes('garden'))
+      ) || (
+        (lower.includes('lunch') || lower.includes('dinner') || lower.includes('breakfast') || lower.includes('khana')) &&
+        (taskLower.includes('lunch') || taskLower.includes('dinner') || taskLower.includes('breakfast') || taskLower.includes('meal'))
+      );
+    });
+
+    if (!matchedTask) {
+      matchedTask = schedule[0];
+    }
+
     if (langCode === 'hi') {
       return {
-        text: `(tone: warm) आज ${firstTask.time} बजे आपका यह काम है, ${honorific}: ${firstTask.task}।`,
+        text: `(tone: warm) आज ${matchedTask.time} बजे आपका यह काम है, ${honorific}: ${matchedTask.task}। ${matchedTask.instructions ? `(${matchedTask.instructions})` : ''}`,
+        functionCalls: [{ name: 'navigateToPage', args: { page: 'schedule' } }],
+      };
+    }
+    if (langCode === 'gu') {
+      return {
+        text: `(tone: warm) આજે ${matchedTask.time} વાગ્યે તમારું આ કામ છે, ${honorific}: ${matchedTask.task}।`,
         functionCalls: [{ name: 'navigateToPage', args: { page: 'schedule' } }],
       };
     }
     return {
-      text: `(tone: warm) Today at ${firstTask.time}, your task is: ${firstTask.task}, ${honorific}.`,
+      text: `(tone: warm) Today at ${matchedTask.time}, your task is: ${matchedTask.task}${matchedTask.instructions ? ` (${matchedTask.instructions})` : ''}, ${honorific}.`,
       functionCalls: [{ name: 'navigateToPage', args: { page: 'schedule' } }],
     };
   }
 
-  // 6. JOKES & HUMOR (Out-of-Context Open Domain)
-  const isJoke = /\b(joke|chutkula|chutkule|hasao|funny|laugh|hasi|mazak|latifa|hasvaanu)\b/i.test(lower);
-  if (isJoke) {
-    if (langCode === 'hi') {
-      return { text: `(tone: warm) डॉक्टर ने पूछा: कैसी तबीयत है? (pause) मरीज बोला: पहले से ज्यादा लोग देखने आ रहे हैं! (pause) उम्मीद है आपके चेहरे पर मुस्कान आई, ${honorific}।` };
-    }
-    if (langCode === 'gu') {
-      return { text: `(tone: warm) પત્ની: તમે મને ક્યારેય બહાર નથી લઈ જતા! (pause) પતિ: ચાલ આજે ઘરની બહાર ઊભા રહીએ! (pause) સ્મિત કરતા રહો, ${honorific}!` };
-    }
-    if (langCode === 'mr') {
-      return { text: `(tone: warm) शिक्षक: सांगा मुलांनो, अभ्यास कधी करावा? (pause) बंडू: जेव्हा आई घरी नसते! (pause) हसत राहा, ${honorific}!` };
-    }
-    if (langCode === 'bn') {
-      return { text: `(tone: warm) ডাক্তার বললেন: কেমন আছেন? (pause) রোগী বলল: আগের চেয়ে অনেক বেশি মিষ্টি খাচ্ছি! (pause) ভালো থাকুন ও হাসিখুশি থাকুন, ${honorific}।` };
-    }
-    return { text: `(tone: warm) Why don't flowers tell secrets? (pause) Because they have too many petals! (pause) I hope that brought a sweet smile to you, ${honorific}.` };
-  }
 
-  // 7. SONGS & LULLABIES (Out-of-Context Open Domain)
-  const isSong = /\b(sing|song|gaana|geet|lullaby|lori|kavita|poem|rhyme|sur|dhun|sangeet|gao)\b/i.test(lower);
-  if (isSong) {
-    if (langCode === 'hi') {
-      return { text: `(tone: warm) "फूल खिले हैं बगिया में, खुशबू बहती हवाओं में। मन में रहे सदा आनंद, शांति बरसे इन राहों में।" (pause) यह प्यारा सा गीत खास आपके लिए, ${honorific}।` };
-    }
-    if (langCode === 'gu') {
-      return { text: `(tone: warm) "મીઠી મધુર પવનની લહેર, સુખ શાંતિ રહે સદા ઘેર। ફૂલો મહેકે આંગણમાં, સ્નેહ ભરેલો દિલમાં।" (pause) આ શાંત ગીત તમારા માટે છે, ${honorific}।` };
-    }
-    if (langCode === 'mr') {
-      return { text: `(tone: warm) "वारा गातो शांत गाणी, हसते सुंदर ही निसर्गाची वाणी। मन ठेवा सदासर्वदा आनंदी।" (pause) हे गोड गाणे खास तुमच्यासाठी, ${honorific}।` };
-    }
-    return { text: `(tone: warm) "Gentle breeze and morning sun, peace and joy for everyone. Softly dancing on the trees, rest your heart in gentle peace." (pause) A soothing melody for you, ${honorific}.` };
-  }
 
-  // 8. HALLUCINATIONS, NIGHT FEARS & CONFUSION (Clinical Grounding)
+  // 9. HALLUCINATIONS, NIGHT FEARS & CONFUSION (Clinical Grounding)
   const isHallucinationOrFear = /\b(scared|darr|dar|ghost|bhoot|someone outside|shadow|strange noise|hearing voices|koi hai|bina koi|dar lag raha|bhiti|bhay|fear|dark|andhera|thief|chor)\b/i.test(lower);
   if (isHallucinationOrFear) {
     if (langCode === 'hi') {
@@ -355,7 +460,7 @@ function generateLocalFallbackResponse(
     return { text: `(tone: reassuring) I hear you, ${honorific}. (pause) You are completely safe inside your comfortable home. Everything is peaceful and secure, and I am right here with you.` };
   }
 
-  // 9. SOOTHING MICRO-STORIES (Out-of-Context Open Domain)
+  // 10. SOOTHING MICRO-STORIES (Out-of-Context Open Domain)
   const isStory = /\b(story|kahani|katha|vaarta|tell me something|kuch sunao|galpo)\b/i.test(lower);
   if (isStory) {
     if (langCode === 'hi') {
@@ -367,7 +472,7 @@ function generateLocalFallbackResponse(
     return { text: `(tone: warm) Once on a bright golden morning, a tiny robin rested on the garden rose bush, singing a peaceful song. (pause) The gentle morning sun warmed the whole porch with comfort.` };
   }
 
-  // 10. LONELINESS & EMOTIONAL REASSURANCE
+  // 11. LONELINESS & EMOTIONAL REASSURANCE
   const isLoneliness = /\b(lonely|alone|akela|miss|sad|udaas|crying|rona|ekla|mon kharap)\b/i.test(lower);
   if (isLoneliness) {
     if (langCode === 'hi') {
@@ -379,7 +484,7 @@ function generateLocalFallbackResponse(
     return { text: `(tone: reassuring) You are never alone, ${honorific}. (pause) Your loving family, including ${familyNames}, cherishes you, and I am right here keeping you company.` };
   }
 
-  // 11. GENERAL CONVERSATION & CURIOSITY (Varied Natural Responses)
+  // 12. GENERAL CONVERSATION & CURIOSITY (Varied Natural Responses)
   if (langCode === 'hi') {
     return { text: `(tone: warm) नमस्ते ${honorific}। (pause) मैं आपकी बात सुन रही हूँ। आप बहुत अच्छे इंसान हैं और सब कुछ सुखद है।` };
   }
@@ -706,6 +811,11 @@ OPEN-DOMAIN & EMOTIONAL ADAPTABILITY:
 3. HALLUCINATIONS, NIGHT FEARS & SENSORY CONFUSION: Never argue or say "that is not real". Gently validate their feeling and anchor them in safety (e.g. "(tone: reassuring) I am right here with you, ${patientName}. You are completely safe in your cozy home, and everything is peaceful.").
 4. GENERAL CURIOSITY: Answer general questions (weather, nature, simple facts) warmly and directly in 1 short sentence.
 
+CRITICAL PERSONAL CONTEXT & IDENTITY RULES:
+1. FAMILY MEMBERS: When the user asks about family members (e.g. "Who is Maria?", "Who is Sarah?", "Who is Buddy?", "Tell me about my daughter", "Who is my son?", "Who is my wife?"), check the Family Members list in the PATIENT PROFILE. Identify them warmly and describe their relationship and role in 1-2 comforting sentences.
+2. MEMORIES & PHOTOS: When the user asks to see a photo or mentions a memory (e.g. "Show my wedding photo", "Show Buddy", "Show my garden"), call the \`showMemoryImage\` tool with the matching memoryTitle from Key Memories, and briefly describe the photograph warmly in 1-2 sentences.
+3. SCHEDULE & MEDICATIONS: When the user asks what they need to do, about medicine, tea, or lunch, check Today's Schedule and answer directly in 1 short sentence.
+
 ${culturalContext}
 
 ${locationContext}
@@ -773,7 +883,7 @@ Always address ${patientName} ${culturalProfile.honorificTitle || ''} gently and
               tools: [{ functionDeclarations: [SHOW_MEMORY_TOOL, PLAY_VOICE_NOTE_TOOL, NAVIGATE_TOOL] }],
             },
           }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('AI generation timeout')), 3500)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('AI generation timeout')), 7500)),
         ]);
         if (response) break;
       } catch (err: any) {
