@@ -196,19 +196,20 @@ function generateLocalFallbackResponse(
   // 1. Memory Loss, Disorientation, Confusion & Identity Grounding (CRITICAL DEMENTIA INTENT)
   const isMemoryLossOrIdentity = /\b(cannot remember|can't remember|cant remember|don't remember|dont remember|not remember|remember anything|remember nothing|no memory|lost my memory|forget|forgot|forgotten|confused|who am i|my name|who i am|who are you|where am i|lost|help me remember|tell me about me|kuch yaad nahi|kuch bhi yaad|yaad nahi|yad nahin|bhool gaya|bhul gaya|kaun hun|kaun hu|kon hu|kon|naam kya|naam ki|kavaru)\b/i.test(lower);
   if (isMemoryLossOrIdentity) {
+    const memoryCall = memories.length > 0 ? [{ name: 'showMemoryImage', args: { memoryTitle: memories[0].title } }] : undefined;
     if (langCode === 'hi') {
-      return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है और हमेशा आपके साथ है।` };
+      return { text: `(tone: reassuring) आप ${honorific} हैं। (pause) मैं आपकी सौम्य साथी काई हूँ। आप अपने घर पर बिल्कुल सुरक्षित हैं। आपका परिवार, जैसे ${familyNames}, आपसे बहुत प्यार करता है और हमेशा आपके साथ है।`, functionCalls: memoryCall };
     }
     if (langCode === 'gu') {
-      return { text: `(tone: reassuring) તમે ${honorific} છો। (pause) હું તમારી પ્રેમાળ સાથી કાઈ છું। તમારો પરિવાર, જેમ કે ${familyNames}, તમને ખૂબ પ્રેમ કરે છે અને તમે ઘરમાં સુરક્ષિત છો।` };
+      return { text: `(tone: reassuring) તમે ${honorific} છો। (pause) હું તમારી પ્રેમાળ સાથી કાઈ છું। તમારો પરિવાર, જેમ કે ${familyNames}, તમને ખૂબ પ્રેમ કરે છે અને તમે ઘરમાં સુરક્ષિત છો।`, functionCalls: memoryCall };
     }
     if (langCode === 'mr') {
-      return { text: `(tone: reassuring) तुम्ही ${honorific} आहात। (pause) मी तुमची सोबती काई आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते। तुम्ही घरी सुरक्षित आहात।` };
+      return { text: `(tone: reassuring) तुम्ही ${honorific} आहात। (pause) मी तुमची सोबती काई आहे। तुमचे कुटुंब ${familyNames} तुमच्यावर खूप प्रेम करते। तुम्ही घरी सुरक्षित आहात।`, functionCalls: memoryCall };
     }
     if (langCode === 'bn') {
-      return { text: `(tone: reassuring) আপনি হলেন ${honorific}। (pause) আমি আপনার সাথী কাই। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে। আপনি ঘরে নিরাপদ আছেন।` };
+      return { text: `(tone: reassuring) আপনি হলেন ${honorific}। (pause) আমি আপনার সাথী কাই। আপনার পরিবার ${familyNames} আপনাকে খুব ভালোবাসে। আপনি ঘরে নিরাপদ আছেন।`, functionCalls: memoryCall };
     }
-    return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe and comfortable at home. Your loving family, including ${familyNames}, loves you deeply and is right by your side.` };
+    return { text: `(tone: reassuring) You are ${honorific}. (pause) I am Kai, your devoted voice companion. You are completely safe and comfortable at home. Your loving family, including ${familyNames}, loves you deeply and is right by your side.`, functionCalls: memoryCall };
   }
 
   // 2. Where Am I / Location Intent
