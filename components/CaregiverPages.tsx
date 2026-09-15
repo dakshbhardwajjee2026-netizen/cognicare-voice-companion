@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ArrowLeft,
   Plus,
@@ -19,10 +19,22 @@ import {
   Globe,
   Compass,
   Sparkles,
+  MapPin,
+  Navigation,
+  Locate,
+  RefreshCw,
+  Home,
+  AlertCircle,
+  ExternalLink,
+  Layers,
+  Map as MapIcon,
+  Crosshair,
 } from 'lucide-react';
 import { PatientData, Memory, ScheduleEvent, VoiceNote, PatientSettings, SpeechSettings, CulturalProfile } from '../types';
 import { LanguagePicker } from './LanguagePicker';
 import { t } from '../services/i18n';
+import { LocationState, calculateDistanceMeters } from '../hooks/useGeolocation';
+import { reverseGeocode, ReverseGeocodeResult } from '../services/locationService';
 
 // Wrapper for caregiver pages
 export const CaregiverPageView: React.FC<{
@@ -554,23 +566,87 @@ export const RecordVoiceNoteView: React.FC<{
 // 4. Safe Zone Geofence
 export const SafeZoneManager: React.FC<{
   patientData: PatientData;
+  locationState?: LocationState;
   onUpdateSettings: (settings: PatientSettings) => void;
   onBack: () => void;
   currentLanguage?: string;
   onChangeLanguage?: (langId: string) => void;
-}> = ({ patientData, onUpdateSettings, onBack, currentLanguage = 'en', onChangeLanguage }) => {
-  const [radius, setRadius] = useState(patientData.settings?.safeZoneRadius || 250);
-  const [saved, setSaved] = useState(false);
+}> = ({ patientData, locationState, onUpdateSettings, onBack, currentLanguage = 'en', onChangeLanguage }) => {
+  const patientName = patientData.profile?.name || 'David';
+  const defaultHome = patientData.settings?.homeCoordinates || locationState?.coords || { lat: 26.1445, lng: 91.7362 };
+  
+  const [radius, setRadius] = useState<number>(patientData.settings?.safeZoneRadius || 250);
+  const [homeCoords, setHomeCoords] = useState<{ lat: number; lng: number }>(defaultHome);
+  const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number }>(locationState?.coords || defaultHome);
+  const [locationDetails, setLocationDetails] = useState<ReverseGeocodeResult | null>(locationState?.locationDetails || null);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [mapMode, setMapMode] = useState<'map' | 'radar'>('map');
+  const [saved, setSaved] = useState<boolean>(false);
+  const [showCoordInputs, setShowCoordInputs] = useState<boolean>(false);
+
+  // Sync with locationState prop
+  useEffect(() => {
+    if (locationState?.coords) {
+      setCurrentCoords(locationState.coords);
+    }
+    if (locationState?.locationDetails) {
+      setLocationDetails(locationState.locationDetails);
+    } else if (currentCoords) {
+      reverseGeocode(currentCoords.lat, currentCoords.lng).then((res) => {
+        if (res) setLocationDetails(res);
+      });
+    }
+  }, [locationState?.coords, locationState?.locationDetails]);
+
+  const distanceFromHome = calculateDistanceMeters(
+    currentCoords.lat,
+    currentCoords.lng,
+    homeCoords.lat,
+    homeCoords.lng
+  );
+  const isInsideSafeZone = distanceFromHome <= radius;
+
+  const handleRefreshGPS = () => {
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setCurrentCoords(coords);
+        const details = await reverseGeocode(coords.lat, coords.lng);
+        if (details) setLocationDetails(details);
+        setIsLocating(false);
+      },
+      (err) => {
+        console.warn('Location refresh notice:', err.message);
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  const handleSetCurrentAsHome = () => {
+    setHomeCoords({ ...currentCoords });
+  };
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     onUpdateSettings({
       ...patientData.settings,
+      homeCoordinates: homeCoords,
       safeZoneRadius: radius,
     });
     setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setTimeout(() => setSaved(false), 2500);
   };
+
+  // Compute OpenStreetMap bounding box around home coordinates
+  const degSpan = Math.max(0.003, (radius / 111320) * 3.2);
+  const minLng = (homeCoords.lng - degSpan).toFixed(6);
+  const maxLng = (homeCoords.lng + degSpan).toFixed(6);
+  const minLat = (homeCoords.lat - degSpan * 0.7).toFixed(6);
+  const maxLat = (homeCoords.lat + degSpan * 0.7).toFixed(6);
+  const osmUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${homeCoords.lat}%2C${homeCoords.lng}`;
 
   return (
     <CaregiverPageView
@@ -580,46 +656,364 @@ export const SafeZoneManager: React.FC<{
       currentLanguage={currentLanguage}
       onChangeLanguage={onChangeLanguage}
     >
-      <form onSubmit={handleSave} className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm space-y-6">
-        <div className="flex items-center space-x-3 bg-emerald-50 border border-emerald-200 p-4 rounded-2xl">
-          <Shield className="w-8 h-8 text-emerald-600 flex-shrink-0" />
-          <div>
-            <p className="font-bold text-emerald-900 text-sm">Safe Zone is Active</p>
-            <p className="text-xs text-emerald-700">
-              Kai monitors coordinates in the background to ensure {patientData.profile?.name || 'David'} is safe.
-            </p>
+      <form onSubmit={handleSave} className="space-y-6">
+        {/* Status Header Banner */}
+        <div className="flex items-center justify-between bg-white rounded-3xl p-5 border border-stone-200 shadow-sm">
+          <div className="flex items-center space-x-3.5">
+            <div className={`p-3 rounded-2xl ${isInsideSafeZone ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+              <Shield className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-black text-slate-800 text-base">Safe Zone Geofence</span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                  isInsideSafeZone ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800 animate-pulse'
+                }`}>
+                  {isInsideSafeZone ? '✓ SAFE INSIDE BOUNDARY' : '⚠️ BOUNDARY ALERT'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Monitoring live GPS coordinates of {patientName}.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleRefreshGPS}
+            disabled={isLocating}
+            className="flex items-center space-x-1.5 text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-2 rounded-xl border border-purple-200 transition"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLocating ? 'animate-spin' : ''}`} />
+            <span>{isLocating ? 'Locating...' : 'Refresh GPS'}</span>
+          </button>
+        </div>
+
+        {/* 1. VISUAL GEOFENCE MAP WINDOW */}
+        <div className="bg-white rounded-3xl border border-stone-200 shadow-sm overflow-hidden">
+          {/* Map Top Bar */}
+          <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+            <div className="flex items-center space-x-2">
+              <MapPin className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                Live Geofence Radar & Map
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setMapMode('map')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition ${
+                  mapMode === 'map' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <MapIcon className="w-3 h-3" />
+                <span>Street Map</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMapMode('radar')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center space-x-1 transition ${
+                  mapMode === 'radar' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                <Crosshair className="w-3 h-3" />
+                <span>Radar Scan</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Map Body Canvas */}
+          <div className="relative w-full h-80 sm:h-96 bg-slate-950 overflow-hidden flex items-center justify-center">
+            {mapMode === 'map' ? (
+              <>
+                {/* Live OpenStreetMap Iframe */}
+                <iframe
+                  title="Geofence Live Map"
+                  src={osmUrl}
+                  className="w-full h-full border-0 filter contrast-[1.05]"
+                  loading="lazy"
+                />
+
+                {/* Visual Safe Zone Circle Overlay on Map */}
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                  <div
+                    style={{
+                      width: `${Math.min(280, Math.max(90, (radius / 1000) * 260))}px`,
+                      height: `${Math.min(280, Math.max(90, (radius / 1000) * 260))}px`,
+                    }}
+                    className="rounded-full border-2 border-emerald-500/80 bg-emerald-500/20 shadow-[0_0_25px_rgba(16,185,129,0.35)] flex items-center justify-center transition-all duration-300 relative"
+                  >
+                    <div className="absolute -top-3 bg-emerald-700 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow">
+                      {radius}m Radius
+                    </div>
+                    {/* Center Home Base Marker */}
+                    <div className="relative flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center shadow-lg text-white">
+                        <Home className="w-4 h-4" />
+                      </div>
+                      <span className="absolute -top-1 -right-1 w-3 h-3 bg-emerald-400 rounded-full animate-ping"></span>
+                    </div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* High-Tech Radar View */
+              <div className="relative w-full h-full bg-slate-950 flex items-center justify-center">
+                {/* Radar Grid Lines */}
+                <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40"></div>
+                <div className="absolute w-full h-px bg-emerald-500/20"></div>
+                <div className="absolute h-full w-px bg-emerald-500/20"></div>
+
+                {/* Outer Ring */}
+                <div className="absolute w-72 h-72 rounded-full border border-emerald-500/20 flex items-center justify-center">
+                  <span className="absolute top-2 text-[10px] text-emerald-600 font-mono">1000m</span>
+                </div>
+                {/* Mid Ring */}
+                <div className="absolute w-52 h-52 rounded-full border border-emerald-500/30 flex items-center justify-center">
+                  <span className="absolute top-2 text-[10px] text-emerald-500 font-mono">500m</span>
+                </div>
+                {/* Inner Ring */}
+                <div className="absolute w-32 h-32 rounded-full border border-emerald-500/40 flex items-center justify-center">
+                  <span className="absolute top-2 text-[10px] text-emerald-400 font-mono">250m</span>
+                </div>
+
+                {/* Dynamic Configured Safe Zone Ring */}
+                <div
+                  style={{
+                    width: `${Math.min(270, Math.max(70, (radius / 1000) * 260))}px`,
+                    height: `${Math.min(270, Math.max(70, (radius / 1000) * 260))}px`,
+                  }}
+                  className="absolute rounded-full border-2 border-dashed border-emerald-400 bg-emerald-500/15 shadow-[0_0_20px_rgba(52,211,153,0.3)] flex items-center justify-center transition-all duration-300"
+                >
+                  <span className="absolute -top-3.5 bg-emerald-600 text-white text-[10px] font-mono px-2 py-0.5 rounded-full">
+                    Zone: {radius}m
+                  </span>
+                </div>
+
+                {/* Center Home Marker */}
+                <div className="relative z-10 flex flex-col items-center">
+                  <div className="w-10 h-10 rounded-full bg-emerald-600 border-2 border-white flex items-center justify-center shadow-lg text-white">
+                    <Home className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] font-bold text-white bg-slate-900/80 px-2 py-0.5 rounded mt-1">
+                    Home Base
+                  </span>
+                </div>
+
+                {/* Patient Live Pin (if away from home) */}
+                {distanceFromHome > 15 && (
+                  <div className="absolute top-12 right-16 z-10 flex flex-col items-center animate-bounce">
+                    <div className="w-8 h-8 rounded-full bg-indigo-600 border-2 border-white flex items-center justify-center shadow-lg text-white">
+                      <Compass className="w-4 h-4" />
+                    </div>
+                    <span className="text-[9px] font-bold text-indigo-200 bg-slate-900/90 px-1.5 py-0.5 rounded mt-0.5">
+                      {patientName} ({distanceFromHome}m)
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Quick Floating Actions over Map */}
+            <div className="absolute top-3 right-3 flex flex-col space-y-2 z-10">
+              <a
+                href={`https://www.google.com/maps?q=${currentCoords.lat},${currentCoords.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-white/95 backdrop-blur-md text-slate-700 hover:text-slate-900 p-2 rounded-xl shadow-md border border-slate-200 text-xs font-semibold flex items-center space-x-1"
+                title="Open in Google Maps"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Google Maps</span>
+              </a>
+            </div>
+          </div>
+
+          {/* 2. CURRENT LOCATION AND AREA DISPLAY (BOTTOM OF MAP WINDOW) */}
+          <div className="p-5 bg-gradient-to-b from-stone-50 to-white border-t border-stone-200 space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-start space-x-3">
+                <div className="p-2.5 bg-emerald-100 text-emerald-700 rounded-xl mt-0.5 flex-shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2 flex-wrap">
+                    <h3 className="font-extrabold text-slate-900 text-sm">
+                      {locationDetails?.neighborhood || 'Home Safe Zone'}
+                    </h3>
+                    {locationDetails?.city && (
+                      <span className="px-2 py-0.5 rounded-md bg-stone-200 text-slate-700 text-[11px] font-semibold">
+                        {locationDetails.city}{locationDetails.state ? `, ${locationDetails.state}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                    {locationDetails?.formattedAddress || `Latitude: ${currentCoords.lat.toFixed(4)}, Longitude: ${currentCoords.lng.toFixed(4)}`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSetCurrentAsHome}
+                className="self-start sm:self-center flex items-center space-x-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3.5 py-2 rounded-xl border border-emerald-300 shadow-sm transition"
+              >
+                <Home className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Set as Home Center</span>
+              </button>
+            </div>
+
+            {/* Landmarks & Physical Surroundings */}
+            {locationDetails?.nearbyLandmarks && locationDetails.nearbyLandmarks.length > 0 && (
+              <div className="pt-2 border-t border-stone-200/80">
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  Surrounding Landmarks & Area Context
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {locationDetails.nearbyLandmarks.map((lm, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2.5 py-1 rounded-lg bg-white border border-stone-200 text-slate-700 text-xs font-medium shadow-xs"
+                    >
+                      {lm}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Real-Time GPS Telemetry Strip */}
+            <div className="pt-2 border-t border-stone-200/80 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <div className="bg-white p-2.5 rounded-xl border border-stone-200">
+                <span className="text-slate-400 block text-[10px] font-bold uppercase">Current Coordinates</span>
+                <span className="font-mono font-bold text-slate-800">
+                  {currentCoords.lat.toFixed(5)}°, {currentCoords.lng.toFixed(5)}°
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-stone-200">
+                <span className="text-slate-400 block text-[10px] font-bold uppercase">Distance to Home Base</span>
+                <span className="font-bold text-slate-800">
+                  {distanceFromHome} meters ({Math.round(distanceFromHome * 3.28084)} ft)
+                </span>
+              </div>
+              <div className="bg-white p-2.5 rounded-xl border border-stone-200">
+                <span className="text-slate-400 block text-[10px] font-bold uppercase">Boundary Verification</span>
+                <span className={`font-bold ${isInsideSafeZone ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  {isInsideSafeZone ? `✓ Inside ${radius}m Zone` : `⚠️ Outside by ${distanceFromHome - radius}m`}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-            Safe Zone Radius: {radius} meters ({Math.round(radius * 3.28084)} feet)
-          </label>
+        {/* 3. GEOFENCE RADIUS SLIDER */}
+        <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Safe Zone Radius Boundary
+            </label>
+            <span className="text-sm font-black text-purple-700 font-mono bg-purple-50 px-3 py-1 rounded-xl border border-purple-100">
+              {radius} meters ({Math.round(radius * 3.28084)} ft)
+            </span>
+          </div>
+
           <input
             type="range"
             min="50"
-            max="1000"
+            max="1500"
             step="25"
             value={radius}
             onChange={(e) => setRadius(Number(e.target.value))}
-            className="w-full h-2 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            className="w-full h-2.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
           />
-          <div className="flex justify-between text-xs text-slate-400 mt-1">
-            <span>50m (Home only)</span>
-            <span>500m (Neighborhood)</span>
-            <span>1000m (Community)</span>
+
+          {/* Quick preset chips */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {[
+              { label: '50m (Home Only)', val: 50 },
+              { label: '150m (Street)', val: 150 },
+              { label: '250m (Standard)', val: 250 },
+              { label: '500m (Neighborhood)', val: 500 },
+              { label: '1000m (Community)', val: 1000 },
+            ].map((preset) => (
+              <button
+                key={preset.val}
+                type="button"
+                onClick={() => setRadius(preset.val)}
+                className={`text-xs px-3 py-1.5 rounded-xl font-medium border transition ${
+                  radius === preset.val
+                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                    : 'bg-stone-50 text-slate-600 border-stone-200 hover:bg-stone-100'
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
         </div>
 
+        {/* 4. HOME BASE COORDINATES OVERRIDE (OPTIONAL) */}
+        <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Home Base Center Point
+              </p>
+              <p className="text-xs text-slate-500">
+                Center coordinate from which safe radius is measured.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCoordInputs(!showCoordInputs)}
+              className="text-xs text-purple-600 font-semibold hover:underline"
+            >
+              {showCoordInputs ? 'Hide Coordinates' : 'Manual Coordinates'}
+            </button>
+          </div>
+
+          {showCoordInputs && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Home Latitude
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={homeCoords.lat}
+                  onChange={(e) => setHomeCoords({ ...homeCoords, lat: Number(e.target.value) })}
+                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl font-mono focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Home Longitude
+                </label>
+                <input
+                  type="number"
+                  step="0.000001"
+                  value={homeCoords.lng}
+                  onChange={(e) => setHomeCoords({ ...homeCoords, lng: Number(e.target.value) })}
+                  className="w-full px-3 py-2 text-xs border border-stone-300 rounded-xl font-mono focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         {saved && (
-          <p className="text-xs text-emerald-700 font-bold text-center bg-emerald-50 p-2 rounded-xl">
-            Settings updated successfully!
-          </p>
+          <div className="flex items-center space-x-2 text-xs text-emerald-800 font-bold justify-center bg-emerald-50 border border-emerald-200 p-3 rounded-2xl shadow-sm">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span>Safe Zone configuration and map coordinates saved successfully!</span>
+          </div>
         )}
 
         <button
           type="submit"
-          className="w-full bg-purple-600 text-white font-bold py-3 rounded-xl hover:bg-purple-700 shadow-md transition"
+          className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-extrabold py-3.5 rounded-2xl hover:from-purple-700 hover:to-indigo-700 shadow-md transition active:scale-[0.99]"
         >
           Save Safe Zone Configuration
         </button>
