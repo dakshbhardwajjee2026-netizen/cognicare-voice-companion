@@ -642,6 +642,7 @@ export const App: React.FC = () => {
     return (
       <SafeZoneManager
         patientData={patientData}
+        locationState={locationState}
         onUpdateSettings={handleUpdateSettings}
         onBack={() => setActiveTab('caregiver')}
         currentLanguage={currentLanguage}
