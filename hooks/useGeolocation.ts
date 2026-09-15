@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { PatientSettings } from '../types';
-import { reverseGeocode, ReverseGeocodeResult } from '../services/locationService';
+import { reverseGeocode, ReverseGeocodeResult, getApproximateLocationFromIP } from '../services/locationService';
 
 export interface LocationState {
   coords: { lat: number; lng: number } | null;
@@ -43,6 +43,26 @@ export const useGeolocation = (settings: PatientSettings | undefined) => {
   const watchIdRef = useRef<number | null>(null);
 
   useEffect(() => {
+    // 1. Initial IP-based approximate bootstrap for immediate responsiveness
+    getApproximateLocationFromIP().then(async (ipLoc) => {
+      if (ipLoc) {
+        setLocationState((prev) => {
+          if (prev.coords) return prev; // If already resolved GPS, don't overwrite
+          return {
+            ...prev,
+            coords: { lat: ipLoc.lat, lng: ipLoc.lng },
+          };
+        });
+        const details = await reverseGeocode(ipLoc.lat, ipLoc.lng);
+        if (details) {
+          setLocationState((prev) => ({
+            ...prev,
+            locationDetails: prev.locationDetails || details,
+          }));
+        }
+      }
+    });
+
     if (typeof window === 'undefined' || !navigator.geolocation) {
       setLocationState((prev) => ({
         ...prev,
@@ -80,26 +100,25 @@ export const useGeolocation = (settings: PatientSettings | undefined) => {
     };
 
     const handleError = (error: GeolocationPositionError) => {
-      // Graceful fallback for iframe permissions or denied location
       console.warn('Geolocation notice:', error.message);
       setLocationState((prev) => ({
         ...prev,
         error: error.message,
-        isSafe: true, // Default to safe so patient is not alarmed unnecessarily
+        isSafe: true,
       }));
     };
 
-    // Get immediate position then watch
+    // Get immediate high-accuracy position then watch
     navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
-      enableHighAccuracy: false,
+      enableHighAccuracy: true,
       timeout: 10000,
-      maximumAge: 60000,
+      maximumAge: 10000,
     });
 
     watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
-      enableHighAccuracy: false,
+      enableHighAccuracy: true,
       timeout: 15000,
-      maximumAge: 60000,
+      maximumAge: 10000,
     });
 
     return () => {
